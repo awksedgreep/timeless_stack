@@ -1,0 +1,12 @@
+_build/
+deps/
+.git/
+.gitignore
+*.md
+test/
+cover/
+doc/
+tmp/
+erl_crash.dump
+*.ez
+.formatter.exs
