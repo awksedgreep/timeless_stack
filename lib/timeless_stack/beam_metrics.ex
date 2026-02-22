@@ -20,7 +20,11 @@ defmodule TimelessStack.BeamMetrics do
   require Logger
 
   @store :timeless_metrics
-  @labels %{}
+
+  defp labels do
+    {:ok, hostname} = :inet.gethostname()
+    %{"host" => to_string(hostname)}
+  end
 
   def attach do
     :telemetry.attach_many(
@@ -41,7 +45,7 @@ defmodule TimelessStack.BeamMetrics do
     ts = System.os_time(:second)
 
     for {key, value} <- measurements do
-      TimelessMetrics.write(@store, "vm_memory_#{key}", @labels, value, timestamp: ts)
+      TimelessMetrics.write(@store, "vm_memory_#{key}", labels(), value, timestamp: ts)
     end
   end
 
@@ -49,7 +53,7 @@ defmodule TimelessStack.BeamMetrics do
     ts = System.os_time(:second)
 
     for {key, value} <- measurements do
-      TimelessMetrics.write(@store, "vm_run_queue_#{key}", @labels, value, timestamp: ts)
+      TimelessMetrics.write(@store, "vm_run_queue_#{key}", labels(), value, timestamp: ts)
     end
   end
 
@@ -57,7 +61,7 @@ defmodule TimelessStack.BeamMetrics do
     ts = System.os_time(:second)
 
     for {key, value} <- measurements do
-      TimelessMetrics.write(@store, "vm_#{key}", @labels, value, timestamp: ts)
+      TimelessMetrics.write(@store, "vm_#{key}", labels(), value, timestamp: ts)
     end
   end
 end

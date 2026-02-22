@@ -109,6 +109,38 @@ defmodule TimelessStack.UIDataSource do
     end
   end
 
+  @impl true
+  def list_hosts(state) do
+    {:ok, metric_names} = TimelessMetrics.list_metrics(state.store)
+
+    Enum.flat_map(metric_names, fn metric_name ->
+      case TimelessMetrics.label_values(state.store, metric_name, "host") do
+        {:ok, hosts} -> hosts
+        _ -> []
+      end
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  @impl true
+  def list_series_for_host(state, host) do
+    {:ok, metric_names} = TimelessMetrics.list_metrics(state.store)
+
+    Enum.flat_map(metric_names, fn metric_name ->
+      case TimelessMetrics.list_series(state.store, metric_name) do
+        {:ok, series_list} ->
+          series_list
+          |> Enum.filter(fn %{labels: labels} -> labels["host"] == host end)
+          |> Enum.map(fn %{labels: labels} -> {metric_name, labels} end)
+
+        _ ->
+          []
+      end
+    end)
+    |> Enum.uniq_by(fn {metric_name, _labels} -> metric_name end)
+  end
+
   # --- Private ---
 
   defp extract_host(element) do
@@ -120,7 +152,7 @@ defmodule TimelessStack.UIDataSource do
     meta = element.meta || %{}
 
     meta
-    |> Map.drop(["metric_name"])
+    |> Map.drop(["metric_name", "y_min", "y_max"])
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
     |> Map.new()
   end

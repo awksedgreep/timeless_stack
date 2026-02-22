@@ -16,6 +16,18 @@ config :timeless_traces,
   data_dir: Path.expand("../data/traces", __DIR__),
   http: [port: 20428]
 
+# TimelessUI endpoint dev settings: asset watchers
+config :timeless_ui, TimelessUIWeb.Endpoint,
+  debug_errors: true,
+  check_origin: false,
+  watchers: [
+    esbuild: {Esbuild, :install_and_run, [:timeless_ui, ~w(--sourcemap=inline --watch)]},
+    tailwind: {Tailwind, :install_and_run, [:timeless_ui, ~w(--watch)]}
+  ]
+
+# Enable dev routes (mailbox, dashboard) for TimelessUI
+config :timeless_ui, dev_routes: true
+
 # Disable swoosh api client in dev
 config :swoosh, :api_client, false
 
