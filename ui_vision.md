@@ -22,29 +22,10 @@ The primary workspace is an infinite pannable, zoomable canvas. Everything lives
 - **Labels and annotations** for documentation and context
 - **Grouping containers** for racks, availability zones, regions, logical services
 
-### Zoom Levels
+### Detail Levels
 
-The canvas supports semantic zoom - what you see changes based on zoom level:
-
-| Zoom | View |
-|---|---|
-| Far out | Regions/datacenters as colored clusters, overall health heatmap |
-| Mid | Individual servers as icons with status color, sparkline mini-graphs |
-| Close | Full detail - expanded graphs, log tails, resource breakdowns |
-| Focused | Single element with all its metrics, logs, traces, and dependencies |
-
-## Window Manager Behavior
-
-Every panel on the canvas behaves like a window in a tiling WM:
-
-- **Drag** to position anywhere on the canvas
-- **Resize** by grabbing edges/corners
-- **Stack/layer** with z-ordering (bring to front, send to back)
-- **Snap** to other panels or grid points (optional, toggleable)
-- **Minimize** to an icon on the element it's attached to
-- **Maximize** to fill the viewport (temporary focus mode)
-- **Pin** to viewport so it stays visible while panning (like a sticky note)
-- **Tab groups** - stack multiple panels into a tabbed container
+Instead of semantic zoom, detail is managed by linking canvas elements to sub-canvases.
+Double-click a canvas element to drill down. Breadcrumb navigation to go back up.
 
 ### Keyboard-Driven
 

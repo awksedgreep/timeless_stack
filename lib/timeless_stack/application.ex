@@ -5,9 +5,9 @@ defmodule TimelessStack.Application do
 
   @impl true
   def start(_type, _args) do
-    # The three Timeless services start themselves via their own Application
-    # modules during OTP boot. TimelessStack.Application only needs to start
-    # stack-level concerns (future: clustering, unified health, etc.).
+    # Attach BEAM VM telemetry → TimelessMetrics bridge
+    TimelessStack.BeamMetrics.attach()
+
     children = []
 
     opts = [strategy: :one_for_one, name: TimelessStack.Supervisor]

@@ -20,12 +20,11 @@ defmodule TimelessStack.MixProject do
 
   defp deps do
     [
-      {:timeless_metrics, github: "awksedgreep/timeless_metrics", tag: "v0.6.4"},
+      {:timeless_metrics, github: "awksedgreep/timeless_metrics", tag: "v1.0.1"},
       {:timeless_logs, github: "awksedgreep/timeless_logs"},
       {:timeless_traces, github: "awksedgreep/timeless_traces"},
-      # Override: logs/traces pull ex_openzl from GitHub, needs consistent ref
-      {:ex_openzl, github: "awksedgreep/ex_openzl", ref: "25bcbf9", submodules: true,
-       override: true}
+      {:ex_openzl, "~> 0.4.0", override: true},
+      {:timeless_ui, path: "../timeless_ui"}
     ]
   end
 end
