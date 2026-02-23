@@ -141,6 +141,11 @@ defmodule TimelessStack.UIDataSource do
     |> Enum.uniq_by(fn {metric_name, _labels} -> metric_name end)
   end
 
+  @impl true
+  def metric_metadata(state, metric_name) do
+    TimelessMetrics.get_metadata(state.store, metric_name)
+  end
+
   # --- Private ---
 
   defp extract_host(element) do
