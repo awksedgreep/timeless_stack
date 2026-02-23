@@ -55,6 +55,7 @@ config :timeless_ui, TimelessUIWeb.Endpoint,
 config :timeless_ui, TimelessUI.Repo, database: Path.expand("../data/timeless_ui.db", __DIR__)
 
 config :timeless_ui, TimelessUI.Mailer, adapter: Swoosh.Adapters.Local
+config :swoosh, :api_client, false
 
 # Wire TimelessUI to use real stack backends
 config :timeless_ui, :data_source,

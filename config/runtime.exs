@@ -80,4 +80,26 @@ if config_env() == :prod do
     http: traces_http,
     retention_max_age: traces_retention_age,
     retention_max_size: traces_retention_size
+
+  # --- UI (Phoenix) ---
+  ui_port =
+    System.get_env("TIMELESS_UI_PORT", "4000") |> String.to_integer()
+
+  ui_host = System.get_env("PHX_HOST", "localhost")
+
+  secret_key_base =
+    System.get_env("SECRET_KEY_BASE") ||
+      "6HpOY7CC/N+rgF+zzOAbGncebnKFnh41LuJzOdNVfa4pK3LApArebfIxP1aB6EBH"
+
+  config :timeless_ui, TimelessUIWeb.Endpoint,
+    url: [host: ui_host, port: ui_port],
+    http: [ip: {0, 0, 0, 0}, port: ui_port],
+    server: true,
+    secret_key_base: secret_key_base
+
+  config :timeless_ui, TimelessUI.Repo,
+    database: Path.join(data_dir, "timeless_ui.db")
+
+  # Disable Swoosh API client (we use Local adapter, no HTTP sending)
+  config :swoosh, :api_client, false
 end
