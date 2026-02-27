@@ -62,6 +62,6 @@ jobs:
           tags: |
             ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
             ghcr.io/${{ env.IMAGE_NAME }}:latest
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
