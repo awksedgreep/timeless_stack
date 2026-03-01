@@ -34,7 +34,7 @@ defmodule TimelessStack.MixProject do
     [
       {:timeless_metrics, github: "awksedgreep/timeless_metrics", tag: "v3.0.4"},
       {:timeless_logs, github: "awksedgreep/timeless_logs"},
-      {:timeless_traces, github: "awksedgreep/timeless_traces"},
+      {:timeless_traces, github: "awksedgreep/timeless_traces", tag: "v1.0.3"},
       {:ex_openzl, "~> 0.4.5", override: true},
       {:timeless_ui, github: "awksedgreep/timeless_ui", tag: "v0.5.2"},
       {:hackney, "~> 1.20"}
