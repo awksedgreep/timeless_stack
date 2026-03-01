@@ -20,6 +20,11 @@ RUN mix deps.compile
 
 COPY timeless_stack/lib lib
 
+# Heroicons is a dep of timeless_ui but gets fetched into the stack's deps/.
+# Tailwind expects it at deps/timeless_ui/deps/heroicons, so symlink it.
+RUN mkdir -p deps/timeless_ui/deps && \
+    ln -sf /build/timeless_stack/deps/heroicons deps/timeless_ui/deps/heroicons
+
 # Build assets
 RUN mix assets.setup
 RUN mix assets.deploy
