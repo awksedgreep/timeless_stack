@@ -16,9 +16,7 @@ ExecStart=/usr/bin/podman run --rm --name timeless-stack \
   -p 10428:10428 \
   -p 4001:4000 \
   -v timeless_data:/data \
-  -e SECRET_KEY_BASE=REDACTED \
-  -e PHX_HOST=192.168.160.220 \
-  -e RESEND_API_KEY=REDACTED \
+  --env-file /etc/timeless-stack/env \
   ghcr.io/awksedgreep/timeless-stack:latest
 
 ExecStop=/usr/bin/podman stop timeless-stack

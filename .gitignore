@@ -24,3 +24,6 @@ erl_crash.dump
 
 # Ignore package tarball (built via "mix hex.build").
 timeless_stack-*.tar
+
+# Deploy secrets
+deploy/env
