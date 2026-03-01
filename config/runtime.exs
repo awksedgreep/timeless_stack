@@ -81,6 +81,11 @@ if config_env() == :prod do
     retention_max_age: traces_retention_age,
     retention_max_size: traces_retention_size
 
+  # --- OpenTelemetry ---
+  config :opentelemetry, :resource,
+    service: [name: "timeless-stack"],
+    deployment: [environment: "prod"]
+
   # --- UI (Phoenix) ---
   ui_port =
     System.get_env("TIMELESS_UI_PORT", "4000") |> String.to_integer()
@@ -97,8 +102,7 @@ if config_env() == :prod do
     server: true,
     secret_key_base: secret_key_base
 
-  config :timeless_ui, TimelessUI.Repo,
-    database: Path.join(data_dir, "timeless_ui.db")
+  config :timeless_ui, TimelessUI.Repo, database: Path.join(data_dir, "timeless_ui.db")
 
   # Email: use Resend if API key provided, otherwise log to stdout
   resend_key = System.get_env("RESEND_API_KEY")
@@ -108,8 +112,7 @@ if config_env() == :prod do
       adapter: Swoosh.Adapters.Resend,
       api_key: resend_key
 
-    config :timeless_ui, :mailer_from,
-      System.get_env("MAILER_FROM", "noreply@stg.diablodata.com")
+    config :timeless_ui, :mailer_from, System.get_env("MAILER_FROM", "noreply@stg.diablodata.com")
 
     config :swoosh, :api_client, Swoosh.ApiClient.Finch
   else
