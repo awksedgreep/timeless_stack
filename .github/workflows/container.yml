@@ -21,18 +21,6 @@ jobs:
         with:
           path: timeless_stack
 
-      - name: Checkout timeless_metrics
-        uses: actions/checkout@v4
-        with:
-          repository: awksedgreep/timeless_metrics
-          path: timeless_metrics
-
-      - name: Checkout timeless_ui
-        uses: actions/checkout@v4
-        with:
-          repository: awksedgreep/timeless_ui
-          path: timeless_ui
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 

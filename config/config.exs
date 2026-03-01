@@ -72,13 +72,13 @@ config :opentelemetry,
   resource: [service: [name: "timeless_ui"]],
   traces_exporter: {TimelessTraces.Exporter, []}
 
-# Asset build tools for TimelessUI (path dep at ../timeless_ui)
+# Asset build tools for TimelessUI
 config :esbuild,
   version: "0.25.4",
   timeless_ui: [
     args:
       ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
-    cd: Path.expand("../../timeless_ui/assets", __DIR__),
+    cd: Path.expand("../deps/timeless_ui/assets", __DIR__),
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
 
@@ -89,7 +89,7 @@ config :tailwind,
       --input=assets/css/app.css
       --output=priv/static/assets/css/app.css
     ),
-    cd: Path.expand("../../timeless_ui", __DIR__)
+    cd: Path.expand("../deps/timeless_ui", __DIR__)
   ]
 
 config :phoenix, :json_library, Jason

@@ -9,35 +9,16 @@ RUN mix local.hex --force && mix local.rebar --force
 
 ENV MIX_ENV=prod
 
-# Copy all sibling repos needed by path deps
-WORKDIR /build
-COPY timeless_metrics/ timeless_metrics/
-COPY timeless_ui/ timeless_ui/
-
-# Build the stack
 WORKDIR /build/timeless_stack
 COPY timeless_stack/mix.exs timeless_stack/mix.lock ./
 
-# Rewrite path deps to use /build/ prefix for container context
-# Also ensure hackney is present for Swoosh
-RUN sed -i 's|path: "\.\./timeless_metrics"|path: "/build/timeless_metrics"|' mix.exs && \
-    sed -i 's|path: "\.\./timeless_ui"|path: "/build/timeless_ui"|' mix.exs && \
-    sed -i 's|{:timeless_ui, path: "/build/timeless_ui"}|{:timeless_ui, path: "/build/timeless_ui"},\n      {:hackney, "~> 1.20"}|' mix.exs
-
 # Copy config BEFORE deps so compile_env values are set
 COPY timeless_stack/config config
-RUN sed -i 's|Path.expand("../../timeless_ui/assets", __DIR__)|"/build/timeless_ui/assets"|' config/config.exs && \
-    sed -i 's|Path.expand("../../timeless_ui", __DIR__)|"/build/timeless_ui"|' config/config.exs
 
 RUN mix deps.get --only prod
 RUN mix deps.compile
 
 COPY timeless_stack/lib lib
-
-# Heroicons is referenced from timeless_ui/deps/ by the tailwind plugin,
-# but mix deps.get fetches it into timeless_stack/deps/. Symlink it.
-RUN mkdir -p /build/timeless_ui/deps && \
-    ln -sf /build/timeless_stack/deps/heroicons /build/timeless_ui/deps/heroicons
 
 # Build assets
 RUN mix assets.setup
