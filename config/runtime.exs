@@ -100,6 +100,20 @@ if config_env() == :prod do
   config :timeless_ui, TimelessUI.Repo,
     database: Path.join(data_dir, "timeless_ui.db")
 
-  # Disable Swoosh API client (we use Local adapter, no HTTP sending)
-  config :swoosh, :api_client, false
+  # Email: use Resend if API key provided, otherwise log to stdout
+  resend_key = System.get_env("RESEND_API_KEY")
+
+  if resend_key do
+    config :timeless_ui, TimelessUI.Mailer,
+      adapter: Swoosh.Adapters.Resend,
+      api_key: resend_key
+
+    config :timeless_ui, :mailer_from,
+      System.get_env("MAILER_FROM", "noreply@stg.diablodata.com")
+
+    config :swoosh, :api_client, Swoosh.ApiClient.Finch
+  else
+    config :timeless_ui, TimelessUI.Mailer, adapter: Swoosh.Adapters.Logger
+    config :swoosh, :api_client, false
+  end
 end

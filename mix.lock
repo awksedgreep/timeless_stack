@@ -62,7 +62,7 @@
   "timeless_logs": {:git, "https://github.com/awksedgreep/timeless_logs.git", "6d2ec9bb4fea3a6c6e1e359d95652c15c6bd0ae0", []},
   "timeless_metrics": {:git, "https://github.com/awksedgreep/timeless_metrics.git", "db4ad26dee6577d4726cd1ac1892d1c549781af1", [tag: "v3.0.4"]},
   "timeless_traces": {:git, "https://github.com/awksedgreep/timeless_traces.git", "113f08e296bf6b9e51ed9a70f27bfc651cd373d8", []},
-  "timeless_ui": {:git, "https://github.com/awksedgreep/timeless_ui.git", "426f1aad613c1fe34570241c5af9ca6858dfcb6e", [tag: "v0.5.1"]},
+  "timeless_ui": {:git, "https://github.com/awksedgreep/timeless_ui.git", "7fe304ede2f90f7560acb522913a9354483f7683", [tag: "v0.5.2"]},
   "unicode_util_compat": {:hex, :unicode_util_compat, "0.7.1", "a48703a25c170eedadca83b11e88985af08d35f37c6f664d6dcfb106a97782fc", [:rebar3], [], "hexpm", "b3a917854ce3ae233619744ad1e0102e05673136776fb2fa76234f3e03b23642"},
   "websock": {:hex, :websock, "0.5.3", "2f69a6ebe810328555b6fe5c831a851f485e303a7c8ce6c5f675abeb20ebdadc", [:mix], [], "hexpm", "6105453d7fac22c712ad66fab1d45abdf049868f253cf719b625151460b8b453"},
   "websock_adapter": {:hex, :websock_adapter, "0.5.9", "43dc3ba6d89ef5dec5b1d0a39698436a1e856d000d84bf31a3149862b01a287f", [:mix], [{:bandit, ">= 0.6.0", [hex: :bandit, repo: "hexpm", optional: true]}, {:plug, "~> 1.14", [hex: :plug, repo: "hexpm", optional: false]}, {:plug_cowboy, "~> 2.6", [hex: :plug_cowboy, repo: "hexpm", optional: true]}, {:websock, "~> 0.5", [hex: :websock, repo: "hexpm", optional: false]}], "hexpm", "5534d5c9adad3c18a0f58a9371220d75a803bf0b9a3d87e6fe072faaeed76a08"},

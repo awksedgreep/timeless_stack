@@ -1,0 +1,27 @@
+[Unit]
+Description=Timeless Stack (Metrics, Logs, Traces, UI)
+After=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+
+ExecStartPre=-/usr/bin/podman rm -f timeless-stack
+ExecStartPre=/usr/bin/podman pull ghcr.io/awksedgreep/timeless-stack:latest
+
+ExecStart=/usr/bin/podman run --rm --name timeless-stack \
+  -p 8428:8428 \
+  -p 9428:9428 \
+  -p 10428:10428 \
+  -p 4001:4000 \
+  -v timeless_data:/data \
+  -e SECRET_KEY_BASE=REDACTED \
+  -e PHX_HOST=192.168.160.220 \
+  -e RESEND_API_KEY=REDACTED \
+  ghcr.io/awksedgreep/timeless-stack:latest
+
+ExecStop=/usr/bin/podman stop timeless-stack
+
+[Install]
+WantedBy=multi-user.target
