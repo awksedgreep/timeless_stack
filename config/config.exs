@@ -9,17 +9,31 @@ config :timeless_metrics,
   data_dir: "/data/metrics",
   port: 8428
 
-# TimelessLogs: storage mode, data dir, HTTP endpoint
+# TimelessLogs: server-grade settings for dedicated stack host
 config :timeless_logs,
   storage: :disk,
   data_dir: "/data/logs",
-  http: [port: 9428]
+  http: [port: 9428],
+  retention_max_age: 2_592_000,
+  retention_max_size: 2_147_483_648,
+  retention_check_interval: 300_000,
+  max_term_index_entries: 2_000_000,
+  max_buffer_size: 5_000,
+  compaction_threshold: 1_000,
+  merge_compaction_target_size: 5_000
 
-# TimelessTraces: storage mode, data dir, HTTP endpoint
+# TimelessTraces: server-grade settings for dedicated stack host
 config :timeless_traces,
   storage: :disk,
   data_dir: "/data/traces",
-  http: [port: 10428]
+  http: [port: 10428],
+  retention_max_age: 2_592_000,
+  retention_max_size: 1_073_741_824,
+  retention_check_interval: 300_000,
+  max_term_index_entries: 2_000_000,
+  max_buffer_size: 5_000,
+  compaction_threshold: 1_000,
+  merge_compaction_target_size: 5_000
 
 # --- TimelessUI config (dep config files aren't auto-loaded) ---
 config :timeless_ui,
