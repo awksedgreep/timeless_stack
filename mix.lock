@@ -67,7 +67,7 @@
   "telemetry_poller": {:hex, :telemetry_poller, "1.3.0", "d5c46420126b5ac2d72bc6580fb4f537d35e851cc0f8dbd571acf6d6e10f5ec7", [:rebar3], [{:telemetry, "~> 1.0", [hex: :telemetry, repo: "hexpm", optional: false]}], "hexpm", "51f18bed7128544a50f75897db9974436ea9bfba560420b646af27a9a9b35211"},
   "thousand_island": {:hex, :thousand_island, "1.4.3", "2158209580f633be38d43ec4e3ce0a01079592b9657afff9080d5d8ca149a3af", [:mix], [{:telemetry, "~> 0.4 or ~> 1.0", [hex: :telemetry, repo: "hexpm", optional: false]}], "hexpm", "6e4ce09b0fd761a58594d02814d40f77daff460c48a7354a15ab353bb998ea0b"},
   "timeless_logs": {:git, "https://github.com/awksedgreep/timeless_logs.git", "234a40fa9b2ee8ba90c02930b270b5e05db58fc1", [tag: "v1.0.8"]},
-  "timeless_metrics": {:git, "https://github.com/awksedgreep/timeless_metrics.git", "04ea34f11514cdf8257bd6f00c2e906b47539328", [tag: "v3.0.7"]},
+  "timeless_metrics": {:git, "https://github.com/awksedgreep/timeless_metrics.git", "06ae2e9748b3ac6df5f47411665068f48eae4961", [tag: "v3.2.0"]},
   "timeless_traces": {:git, "https://github.com/awksedgreep/timeless_traces.git", "56db08c121a7f24abda2d109b0e427414a2bf449", [tag: "v1.0.7"]},
   "timeless_ui": {:git, "https://github.com/awksedgreep/timeless_ui.git", "7fe304ede2f90f7560acb522913a9354483f7683", [tag: "v0.5.2"]},
   "tls_certificate_check": {:hex, :tls_certificate_check, "1.31.0", "9a910b54d8cb96cc810cabf4c0129f21360f82022b20180849f1442a25ccbb04", [:rebar3], [{:ssl_verify_fun, "~> 1.1", [hex: :ssl_verify_fun, repo: "hexpm", optional: false]}], "hexpm", "9d2b41b128d5507bd8ad93e1a998e06d0ab2f9a772af343f4c00bf76c6be1532"},
