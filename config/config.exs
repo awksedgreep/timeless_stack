@@ -76,8 +76,7 @@ config :timeless_canvas,
   pubsub: TimelessUI.PubSub,
   user_schema: TimelessUI.Accounts.User,
   persistence: TimelessCanvas.Persistence.Ecto,
-  auth: TimelessCanvas.Auth.Policy,
-  current_user_fn: fn socket_or_conn -> socket_or_conn.assigns.current_scope.user end
+  auth: TimelessCanvas.Auth.Policy
 
 # Wire TimelessCanvas to use real stack backends
 config :timeless_canvas, :data_source,

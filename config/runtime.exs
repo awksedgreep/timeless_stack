@@ -3,6 +3,9 @@ import Config
 # Runtime config only applies in prod (container/release deployments).
 # Dev uses compile-time config in dev.exs with local paths.
 # Test uses test.exs with temp dirs.
+config :timeless_canvas,
+  current_user_fn: fn socket_or_conn -> socket_or_conn.assigns.current_scope.user end
+
 if config_env() == :prod do
   # Common root data directory
   data_dir = System.get_env("TIMELESS_DATA_DIR", "/data")
