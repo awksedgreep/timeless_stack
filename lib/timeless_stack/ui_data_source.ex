@@ -5,13 +5,13 @@ defmodule TimelessStack.UIDataSource do
 
   Configured via:
 
-      config :timeless_ui, :data_source,
+      config :timeless_canvas, :data_source,
         module: TimelessStack.UIDataSource,
         config: %{metrics_store: :timeless_metrics},
         poll_interval: 5_000
   """
 
-  @behaviour TimelessUI.DataSource
+  @behaviour TimelessCanvas.DataSource
 
   @impl true
   def init(config) do

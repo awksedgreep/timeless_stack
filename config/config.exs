@@ -71,13 +71,21 @@ config :timeless_ui, TimelessUI.Repo, database: Path.expand("../data/timeless_ui
 config :timeless_ui, TimelessUI.Mailer, adapter: Swoosh.Adapters.Local
 config :swoosh, :api_client, false
 
-# Wire TimelessUI to use real stack backends
-config :timeless_ui, :data_source,
+config :timeless_canvas,
+  repo: TimelessUI.Repo,
+  pubsub: TimelessUI.PubSub,
+  user_schema: TimelessUI.Accounts.User,
+  persistence: TimelessCanvas.Persistence.Ecto,
+  auth: TimelessCanvas.Auth.Policy,
+  current_user_fn: fn socket_or_conn -> socket_or_conn.assigns.current_scope.user end
+
+# Wire TimelessCanvas to use real stack backends
+config :timeless_canvas, :data_source,
   module: TimelessStack.UIDataSource,
   config: %{metrics_store: :timeless_metrics},
   poll_interval: 5_000
 
-config :timeless_ui, :stream_backends,
+config :timeless_canvas, :stream_backends,
   log: TimelessLogs,
   trace: TimelessTraces
 

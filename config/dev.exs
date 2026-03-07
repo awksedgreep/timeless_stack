@@ -32,7 +32,7 @@ config :timeless_ui, dev_routes: true
 config :swoosh, :api_client, false
 
 # Faster polling in dev for more responsive UI
-config :timeless_ui, :data_source,
+config :timeless_canvas, :data_source,
   module: TimelessStack.UIDataSource,
   config: %{metrics_store: :timeless_metrics},
   poll_interval: 2_000

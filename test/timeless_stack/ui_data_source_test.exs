@@ -33,7 +33,7 @@ defmodule TimelessStack.UIDataSourceTest do
   end
 
   defp make_element(id, meta \\ %{}) do
-    %TimelessUI.Canvas.Element{
+    %TimelessCanvas.Canvas.Element{
       id: id,
       type: :server,
       label: "test",
