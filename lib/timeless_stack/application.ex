@@ -5,9 +5,6 @@ defmodule TimelessStack.Application do
 
   @impl true
   def start(_type, _args) do
-    # Attach BEAM VM telemetry → TimelessMetrics bridge
-    TimelessStack.BeamMetrics.attach()
-
     children = []
 
     opts = [strategy: :one_for_one, name: TimelessStack.Supervisor]
