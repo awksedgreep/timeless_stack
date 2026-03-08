@@ -32,12 +32,12 @@ defmodule TimelessStack.MixProject do
 
   defp deps do
     [
-      {:timeless_metrics, github: "awksedgreep/timeless_metrics", tag: "v3.2.0"},
-      {:timeless_logs, github: "awksedgreep/timeless_logs", tag: "v1.1.0"},
-      {:timeless_traces, github: "awksedgreep/timeless_traces", tag: "v1.1.0"},
+      {:timeless_metrics, github: "awksedgreep/timeless_metrics", tag: "v3.4.0"},
+      {:timeless_logs, github: "awksedgreep/timeless_logs", tag: "v1.1.1"},
+      {:timeless_traces, github: "awksedgreep/timeless_traces", tag: "v1.1.1"},
       {:ex_openzl, "~> 0.4.5", override: true},
-      {:timeless_canvas, github: "awksedgreep/timeless_canvas", tag: "v0.2.0"},
-      {:timeless_ui, github: "awksedgreep/timeless_ui", tag: "v0.8.3"},
+      {:timeless_canvas, github: "awksedgreep/timeless_canvas", tag: "v0.3.0", override: true},
+      {:timeless_ui, github: "awksedgreep/timeless_ui", tag: "v0.8.4"},
       {:hackney, "~> 1.20"}
     ]
   end
