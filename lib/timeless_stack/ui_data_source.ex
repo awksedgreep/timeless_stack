@@ -35,9 +35,16 @@ defmodule TimelessStack.UIDataSource do
   def metric(state, element, metric_name) do
     labels = build_labels(element)
 
-    case TimelessMetrics.latest(state.store, metric_name, labels) do
-      {:ok, {_ts, value}} -> {:ok, value}
-      {:ok, nil} -> :no_data
+    case TimelessMetrics.query_multi(state.store, metric_name, labels,
+           from: DateTime.to_unix(DateTime.add(DateTime.utc_now(), -300, :second)),
+           to: DateTime.to_unix(DateTime.utc_now())
+         ) do
+      {:ok, [%{points: [_ | _] = points} | _]} ->
+        {_ts, value} = List.last(points)
+        {:ok, value}
+
+      _ ->
+        :no_data
     end
   end
 
@@ -56,12 +63,12 @@ defmodule TimelessStack.UIDataSource do
     from = DateTime.to_unix(DateTime.add(time, -5, :second))
     to = DateTime.to_unix(time)
 
-    case TimelessMetrics.query(state.store, metric_name, labels, from: from, to: to) do
-      {:ok, [_ | _] = points} ->
+    case TimelessMetrics.query_multi(state.store, metric_name, labels, from: from, to: to) do
+      {:ok, [%{points: [_ | _] = points} | _]} ->
         {_ts, value} = List.last(points)
         {:ok, value}
 
-      {:ok, []} ->
+      _ ->
         :no_data
     end
   end
@@ -72,10 +79,12 @@ defmodule TimelessStack.UIDataSource do
     from_ts = DateTime.to_unix(from)
     to_ts = DateTime.to_unix(to)
 
-    case TimelessMetrics.query(state.store, metric_name, labels, from: from_ts, to: to_ts) do
-      {:ok, points} ->
-        # Convert to millisecond timestamps for the graph
+    case TimelessMetrics.query_multi(state.store, metric_name, labels, from: from_ts, to: to_ts) do
+      {:ok, [%{points: points} | _]} ->
         {:ok, Enum.map(points, fn {ts, val} -> {ts * 1000, val} end)}
+
+      _ ->
+        {:ok, []}
     end
   end
 
@@ -103,11 +112,24 @@ defmodule TimelessStack.UIDataSource do
         :empty
 
       {oldest, newest} ->
-        {:ok, oldest_dt} = DateTime.from_unix(oldest)
-        {:ok, newest_dt} = DateTime.from_unix(newest)
-        {oldest_dt, newest_dt}
+        with {:ok, oldest_dt} <- safe_from_unix(oldest),
+             {:ok, newest_dt} <- safe_from_unix(newest) do
+          {oldest_dt, newest_dt}
+        else
+          _ -> :empty
+        end
     end
   end
+
+  # Timestamps > 1e12 are likely milliseconds; convert to seconds.
+  # Also handles floats by truncating.
+  defp safe_from_unix(ts) when is_number(ts) do
+    ts = if is_float(ts), do: trunc(ts), else: ts
+    ts = if ts > 1_000_000_000_000, do: div(ts, 1_000), else: ts
+    DateTime.from_unix(ts)
+  end
+
+  defp safe_from_unix(_), do: {:error, :invalid}
 
   @impl true
   def list_hosts(state) do
@@ -144,6 +166,20 @@ defmodule TimelessStack.UIDataSource do
   @impl true
   def metric_metadata(state, metric_name) do
     TimelessMetrics.get_metadata(state.store, metric_name)
+  end
+
+  @impl true
+  def list_label_values(state, label_key) do
+    {:ok, metric_names} = TimelessMetrics.list_metrics(state.store)
+
+    Enum.flat_map(metric_names, fn metric_name ->
+      case TimelessMetrics.label_values(state.store, metric_name, label_key) do
+        {:ok, values} -> values
+        _ -> []
+      end
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   # --- Private ---

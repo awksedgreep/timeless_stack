@@ -16,6 +16,9 @@ config :timeless_traces,
   data_dir: Path.expand("../data/traces", __DIR__),
   http: [port: 20428]
 
+# Enable poller in dev
+config :timeless_ui, :poller, enabled: true
+
 # TimelessUI endpoint dev settings: asset watchers
 config :timeless_ui, TimelessUIWeb.Endpoint,
   debug_errors: true,

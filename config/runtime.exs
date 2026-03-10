@@ -89,6 +89,10 @@ if config_env() == :prod do
     service: [name: "timeless-stack"],
     deployment: [environment: "prod"]
 
+  # --- Poller ---
+  poller_enabled = System.get_env("TIMELESS_POLLER_ENABLED", "true") == "true"
+  config :timeless_ui, :poller, enabled: poller_enabled
+
   # --- UI (Phoenix) ---
   ui_port =
     System.get_env("TIMELESS_UI_PORT", "4000") |> String.to_integer()
