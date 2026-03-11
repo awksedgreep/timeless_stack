@@ -116,7 +116,7 @@ defmodule TimelessStack.Health do
       Enum.map(frags, fn {alloc, props} ->
         usage = Keyword.get(props, :mbcs_usage, 0.0)
         pct = Float.round(usage * 100, 1)
-        "  #{alloc}: #{pct}% utilized"
+        "  #{inspect(alloc)}: #{pct}% utilized"
       end)
 
     "--- Fragmentation (worst 3) ---\n" <> Enum.join(lines, "\n")
