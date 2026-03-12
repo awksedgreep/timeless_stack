@@ -27,10 +27,13 @@ if config_env() == :prod do
   metrics_retention_raw =
     System.get_env("TIMELESS_METRICS_RETENTION_RAW", "7") |> String.to_integer()
 
+  defer_compression = System.get_env("TIMELESS_DEFER_COMPRESSION", "false") == "true"
+
   metrics_config = [
     data_dir: Path.join(data_dir, "metrics"),
     port: metrics_port,
-    retention_raw_days: metrics_retention_raw
+    retention_raw_days: metrics_retention_raw,
+    defer_compression: defer_compression
   ]
 
   metrics_config =
