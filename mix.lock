@@ -71,7 +71,7 @@
   "thousand_island": {:hex, :thousand_island, "1.4.3", "2158209580f633be38d43ec4e3ce0a01079592b9657afff9080d5d8ca149a3af", [:mix], [{:telemetry, "~> 0.4 or ~> 1.0", [hex: :telemetry, repo: "hexpm", optional: false]}], "hexpm", "6e4ce09b0fd761a58594d02814d40f77daff460c48a7354a15ab353bb998ea0b"},
   "timeless_canvas": {:git, "https://github.com/awksedgreep/timeless_canvas.git", "6861974bc1b17c2484ee182cb2463bdda4d66fa5", [tag: "v0.4.1"]},
   "timeless_logs": {:git, "https://github.com/awksedgreep/timeless_logs.git", "a158fd69419a2168f6b056b8f67c01078d1a0307", [tag: "v1.3.1"]},
-  "timeless_metrics": {:git, "https://github.com/awksedgreep/timeless_metrics.git", "785abb2dd9c9e124aee80c84153726ec8547db38", [branch: "main"]},
+  "timeless_metrics": {:git, "https://github.com/awksedgreep/timeless_metrics.git", "bf9e5721447e3582aaaa8e3a16bb5d51196c67d8", [tag: "v4.0.0"]},
   "timeless_traces": {:git, "https://github.com/awksedgreep/timeless_traces.git", "8638c8109f397570b2d24d73559f5f1ac8d7e6f6", [tag: "v1.2.1"]},
   "timeless_ui": {:git, "https://github.com/awksedgreep/timeless_ui.git", "80e340124e9f87de391788b0d46167ab1b695835", [tag: "v0.9.3"]},
   "tls_certificate_check": {:hex, :tls_certificate_check, "1.31.0", "9a910b54d8cb96cc810cabf4c0129f21360f82022b20180849f1442a25ccbb04", [:rebar3], [{:ssl_verify_fun, "~> 1.1", [hex: :ssl_verify_fun, repo: "hexpm", optional: false]}], "hexpm", "9d2b41b128d5507bd8ad93e1a998e06d0ab2f9a772af343f4c00bf76c6be1532"},
