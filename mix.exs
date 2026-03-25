@@ -42,7 +42,7 @@ defmodule TimelessStack.MixProject do
 
   defp deps do
     [
-      {:timeless_metrics, github: "awksedgreep/timeless_metrics", tag: "v5.0.0"},
+      {:timeless_metrics, github: "awksedgreep/timeless_metrics", tag: "v6.0.0"},
       {:timeless_logs, github: "awksedgreep/timeless_logs", tag: "v1.3.2"},
       {:timeless_traces, github: "awksedgreep/timeless_traces", tag: "v1.2.2"},
       {:ex_openzl, "~> 0.4.5", override: true},

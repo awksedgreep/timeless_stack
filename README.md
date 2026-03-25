@@ -96,6 +96,53 @@ TimelessStack is a thin orchestration layer. Each component runs as a supervised
 - **TimelessTraces** -- OpenTelemetry-compatible span storage using the same block architecture as logs.
 - **TimelessUI** -- Phoenix LiveView dashboard with real-time canvas visualization, alerting, and metric/log/trace exploration.
 
+## Data Retention
+
+TimelessStack ships with longer retention defaults suited for a dedicated
+observability server.
+
+| Engine | Default Retention | Size Limit |
+|--------|------------------|------------|
+| Metrics (raw) | 90 days | none |
+| Metrics (daily rollup) | 365 days | none |
+| Logs | 90 days | 2 GB |
+| Traces | 90 days | 1 GB |
+
+### Customizing retention
+
+Override in `config/config.exs` or `config/runtime.exs`:
+
+```elixir
+config :timeless_logs,
+  retention_max_age: 180 * 86_400,         # 180 days
+  retention_max_size: 4_294_967_296,       # 4 GB cap (nil = unlimited)
+  retention_check_interval: 300_000        # check every 5 minutes
+
+config :timeless_traces,
+  retention_max_age: 30 * 86_400,          # 30 days
+  retention_max_size: 2_147_483_648        # 2 GB cap
+```
+
+For metrics:
+
+```elixir
+config :timeless_metrics,
+  raw_retention_seconds: 180 * 86_400,     # 180 days raw
+  daily_retention_seconds: 730 * 86_400    # 2 years rolled up
+```
+
+Setting `retention_max_age` to `nil` disables time-based retention.
+Setting `retention_max_size` to `nil` disables size-based retention.
+
+Environment variables can also be used at runtime (see `config/runtime.exs`):
+
+```bash
+LOGS_RETENTION_AGE=7776000    # 90 days in seconds
+LOGS_RETENTION_SIZE=2147483648
+TRACES_RETENTION_AGE=7776000
+TRACES_RETENTION_SIZE=1073741824
+```
+
 ## Health Checks
 
 Each ingestion service exposes a `/health` endpoint:
