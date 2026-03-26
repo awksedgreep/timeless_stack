@@ -2,8 +2,12 @@
 FROM docker.io/hexpm/elixir:1.18.3-erlang-27.3.4-debian-bookworm-20250428 AS builder
 
 RUN apt-get update && \
-    apt-get install -y git build-essential cmake && \
+    apt-get install -y git build-essential cmake curl && \
     rm -rf /var/lib/apt/lists/*
+
+# Install Rust toolchain for tms_engine NIF
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
 
 RUN mix local.hex --force && mix local.rebar --force
 
