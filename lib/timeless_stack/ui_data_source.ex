@@ -12,7 +12,6 @@ defmodule TimelessStack.UIDataSource do
   """
 
   @behaviour TimelessCanvas.DataSource
-
   @impl true
   def init(config) do
     store = Map.get(config, :metrics_store, :timeless_metrics)
@@ -21,7 +20,7 @@ defmodule TimelessStack.UIDataSource do
 
   @impl true
   def status(_state, element) do
-    case extract_host(element) do
+    case status_host(element) do
       nil ->
         :unknown
 
@@ -78,13 +77,11 @@ defmodule TimelessStack.UIDataSource do
     labels = build_labels(element)
     from_ts = DateTime.to_unix(from)
     to_ts = DateTime.to_unix(to)
-
-    case TimelessMetrics.query_multi(state.store, metric_name, labels, from: from_ts, to: to_ts) do
-      {:ok, [%{points: points} | _]} ->
-        {:ok, Enum.map(points, fn {ts, val} -> {ts * 1000, val} end)}
-
-      _ ->
-        {:ok, []}
+    bucket_seconds = graph_bucket_seconds(from_ts, to_ts)
+    if counter_metric?(state, element, metric_name) do
+      counter_metric_range(state, metric_name, labels, from_ts, to_ts, bucket_seconds)
+    else
+      gauge_metric_range(state, metric_name, labels, from_ts, to_ts, bucket_seconds)
     end
   end
 
@@ -131,6 +128,11 @@ defmodule TimelessStack.UIDataSource do
 
   defp safe_from_unix(_), do: {:error, :invalid}
 
+  defp graph_bucket_seconds(from_ts, to_ts) do
+    range_seconds = max(to_ts - from_ts, 1)
+    max(div(range_seconds, 60), 1)
+  end
+
   @impl true
   def list_hosts(state) do
     {:ok, metric_names} = TimelessMetrics.list_metrics(state.store)
@@ -160,7 +162,7 @@ defmodule TimelessStack.UIDataSource do
           []
       end
     end)
-    |> Enum.uniq_by(fn {metric_name, _labels} -> metric_name end)
+    |> Enum.uniq()
   end
 
   @impl true
@@ -189,13 +191,110 @@ defmodule TimelessStack.UIDataSource do
     meta["host"] || meta["service_name"]
   end
 
+  defp status_host(%{type: type} = _element)
+       when type in [:graph, :text_series, :log_stream, :trace_stream, :canvas, :text, :rect] do
+    nil
+  end
+
+  defp status_host(element), do: extract_host(element)
+
   defp build_labels(element) do
     meta = element.meta || %{}
+    series_label_key = meta["series_label_key"]
+    series_label_value = meta["series_label_value"]
+
+    series_filter =
+      if is_binary(series_label_key) and series_label_key != "" and
+           is_binary(series_label_value) and series_label_value != "" do
+        %{series_label_key => series_label_value}
+      else
+        %{}
+      end
 
     meta
-    |> Map.drop(["metric_name", "y_min", "y_max"])
+    |> Map.drop([
+      "metric_name",
+      "series_label_key",
+      "series_label_value",
+      "y_min",
+      "y_max",
+      "icon",
+      "os_icon"
+    ])
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
     |> Map.new()
+    |> Map.merge(series_filter)
+  end
+
+  defp gauge_metric_range(state, metric_name, labels, from_ts, to_ts, bucket_seconds) do
+    case TimelessMetrics.query_aggregate_multi(state.store, metric_name, labels,
+           from: from_ts,
+           to: to_ts,
+           bucket: {bucket_seconds, :seconds},
+           aggregate: :last
+         ) do
+      {:ok, [%{data: points} | _]} ->
+        {:ok, Enum.map(points, fn {ts, val} -> {ts * 1000, val} end)}
+
+      _ ->
+        {:ok, []}
+    end
+  end
+
+  defp counter_metric_range(state, metric_name, labels, from_ts, to_ts, bucket_seconds) do
+    case TimelessMetrics.query_aggregate_multi(state.store, metric_name, labels,
+           from: from_ts,
+           to: to_ts,
+           bucket: {bucket_seconds, :seconds},
+           aggregate: :last
+         ) do
+      {:ok, [%{data: points} | _]} ->
+        {:ok, points |> bucket_rates() |> Enum.map(fn {ts, val} -> {ts * 1000, val} end)}
+
+      _ ->
+        {:ok, []}
+    end
+  end
+
+  defp bucket_rates(points) when length(points) < 2, do: []
+
+  defp bucket_rates(points) do
+    points
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.flat_map(fn [{t1, v1}, {t2, v2}] ->
+      dt = t2 - t1
+      dv = v2 - v1
+
+      if dt > 0 and dv >= 0 do
+        [{t2, dv / dt}]
+      else
+        []
+      end
+    end)
+  end
+
+  defp counter_metric?(state, %{meta: meta}, metric_name) when is_map(meta) do
+    case Map.get(meta, "type") do
+      type when type in ["counter32", "counter64"] ->
+        true
+
+      _ ->
+        counter_metric_from_metadata?(state, metric_name)
+    end
+  end
+
+  defp counter_metric?(state, _element, metric_name) do
+    counter_metric_from_metadata?(state, metric_name)
+  end
+
+  defp counter_metric_from_metadata?(state, metric_name) do
+    case TimelessMetrics.get_metadata(state.store, metric_name) do
+      {:ok, %{type: type}} when type in ["counter32", "counter64", :counter32, :counter64] ->
+        true
+
+      _ -> false
+    end
   end
 
   defp check_logs_for_status(host, opts) do
