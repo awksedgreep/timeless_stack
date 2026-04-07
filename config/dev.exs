@@ -1,5 +1,7 @@
 import Config
 
+ui_port = System.get_env("TIMELESS_UI_PORT", "4000") |> String.to_integer()
+
 # Local data directories for dev (config.exs defaults are for containers)
 # Ports offset by 10000 to avoid conflict with Victoria* in podman on 8428/9428/10428
 config :timeless_metrics,
@@ -21,6 +23,7 @@ config :timeless_ui, :poller, enabled: true
 
 # TimelessUI endpoint dev settings: asset watchers
 config :timeless_ui, TimelessUIWeb.Endpoint,
+  http: [ip: {127, 0, 0, 1}, port: ui_port],
   debug_errors: true,
   check_origin: false,
   watchers: [
