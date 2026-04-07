@@ -78,6 +78,8 @@ defmodule TimelessStack.UIDataSource do
     from_ts = DateTime.to_unix(from)
     to_ts = DateTime.to_unix(to)
     bucket_seconds = graph_bucket_seconds(from_ts, to_ts)
+    {from_ts, to_ts} = align_graph_window(from_ts, to_ts, bucket_seconds)
+
     if counter_metric?(state, element, metric_name) do
       counter_metric_range(state, metric_name, labels, from_ts, to_ts, bucket_seconds)
     else
@@ -131,6 +133,12 @@ defmodule TimelessStack.UIDataSource do
   defp graph_bucket_seconds(from_ts, to_ts) do
     range_seconds = max(to_ts - from_ts, 1)
     max(div(range_seconds, 60), 1)
+  end
+
+  defp align_graph_window(from_ts, to_ts, bucket_seconds) do
+    span_seconds = max(to_ts - from_ts, 1)
+    aligned_to = div(to_ts, bucket_seconds) * bucket_seconds
+    {aligned_to - span_seconds, aligned_to}
   end
 
   @impl true
@@ -293,7 +301,8 @@ defmodule TimelessStack.UIDataSource do
       {:ok, %{type: type}} when type in ["counter32", "counter64", :counter32, :counter64] ->
         true
 
-      _ -> false
+      _ ->
+        false
     end
   end
 
