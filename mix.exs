@@ -43,11 +43,11 @@ defmodule TimelessStack.MixProject do
   defp deps do
     [
       {:timeless_metrics, "~> 6.0.13"},
-      {:timeless_logs, "~> 1.4.7"},
-      {:timeless_traces, "~> 1.3.5"},
+      {:timeless_logs, "~> 1.4.11"},
+      {:timeless_traces, "~> 1.3.9"},
       {:ex_openzl, "~> 0.4.5", override: true},
-      {:timeless_canvas, github: "awksedgreep/timeless_canvas", tag: "v0.4.7", override: true},
-      {:timeless_ui, github: "awksedgreep/timeless_ui", tag: "v0.9.4"},
+      {:timeless_canvas, github: "awksedgreep/timeless_canvas", tag: "v0.4.10", override: true},
+      {:timeless_ui, github: "awksedgreep/timeless_ui", ref: "5a32d19"},
       {:hackney, "~> 1.20"},
       {:recon, "~> 2.5"}
     ]
