@@ -7,11 +7,13 @@ config :timeless_metrics,
 
 config :timeless_logs,
   storage: :memory,
-  http: [port: 0]
+  data_dir: Path.expand("../tmp/test_logs", __DIR__),
+  http: false
 
 config :timeless_traces,
   storage: :memory,
-  http: [port: 0]
+  data_dir: Path.expand("../tmp/test_traces", __DIR__),
+  http: false
 
 # Disable OTel exporter in test
 config :opentelemetry,

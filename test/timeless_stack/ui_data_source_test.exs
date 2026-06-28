@@ -3,8 +3,6 @@ defmodule TimelessStack.UIDataSourceTest do
 
   alias TimelessStack.UIDataSource
 
-  require Logger
-
   @data_dir Path.expand("../../tmp/test_metrics_#{System.unique_integer([:positive])}", __DIR__)
 
   setup do
@@ -17,6 +15,7 @@ defmodule TimelessStack.UIDataSourceTest do
 
     # Start TimelessLogs in memory mode
     Application.put_env(:timeless_logs, :storage, :memory)
+    Application.put_env(:timeless_logs, :data_dir, Path.join(@data_dir, "logs"))
     Application.put_env(:timeless_logs, :flush_interval, 60_000)
     Application.put_env(:timeless_logs, :max_buffer_size, 10_000)
     Application.stop(:timeless_logs)

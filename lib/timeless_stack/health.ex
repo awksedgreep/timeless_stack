@@ -71,6 +71,11 @@ defmodule TimelessStack.Health do
         do: "OK (1:1)",
         else: "WARNING: #{data.dirty_cpu_schedulers} < #{data.cores} cores"
 
+    run_queue_status =
+      if high_run_queue?(data.run_queue, data.cores),
+        do: " — WARNING: higher than core count",
+        else: ""
+
     lines = [
       "=== Timeless Health Check ===",
       "OTP:                   #{data.otp_release} (#{data.word_size}-bit)",
@@ -81,7 +86,7 @@ defmodule TimelessStack.Health do
       "Async Threads:         #{data.async_threads}",
       "Processes:             #{data.process_count}/#{data.process_limit}",
       "Ports:                 #{data.port_count}/#{data.port_limit}",
-      "Run Queue:             #{data.run_queue}#{if data.run_queue > data.cores, do: " — WARNING: higher than core count", else: ""}",
+      "Run Queue:             #{data.run_queue}#{run_queue_status}",
       "--- Memory ---",
       "Total:                 #{data.memory_total_mb} MB",
       "Processes:             #{data.memory_processes_mb} MB",
@@ -121,4 +126,10 @@ defmodule TimelessStack.Health do
 
     "--- Fragmentation (worst 3) ---\n" <> Enum.join(lines, "\n")
   end
+
+  defp high_run_queue?(run_queue, cores) when is_integer(run_queue) and is_integer(cores) do
+    run_queue > cores
+  end
+
+  defp high_run_queue?(_run_queue, _cores), do: false
 end
