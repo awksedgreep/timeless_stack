@@ -4,7 +4,7 @@ defmodule TimelessStack.MixProject do
   def project do
     [
       app: :timeless_stack,
-      version: "0.6.3",
+      version: "0.6.4",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -49,7 +49,7 @@ defmodule TimelessStack.MixProject do
       {:timeless_metrics, "~> 6.0"},
       {:timeless_logs, "~> 1.4"},
       {:timeless_traces, "~> 1.3"},
-      {:ex_openzl, "~> 0.4.5", override: true},
+      {:ex_openzl, "~> 0.4", override: true},
       {:timeless_canvas, github: "awksedgreep/timeless_canvas", override: true},
       {:timeless_ui, github: "awksedgreep/timeless_ui"},
       {:hackney, "~> 1.20"},
