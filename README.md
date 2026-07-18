@@ -45,6 +45,14 @@ docker run -d \
 
 All data is stored under `/data` (metrics, logs, traces, and the UI database). Mount a volume to persist across restarts.
 
+**Performance note:** with rootless podman, published ports go through
+pasta user-mode forwarding, which costs ~13–18% of peak ingest throughput
+at saturation (measured 2026-07-18, timeless_metrics cardinality bank).
+For ingest-heavy deployments use `--network=host` (drop the `-p` flags —
+the stack binds 4000/8428/9428/10428 directly). Under sustained heavy
+ingest also set a generous stop timeout (e.g. `--stop-timeout 120` or
+`TimeoutStopSec=` in quadlets) so the shutdown flush completes.
+
 ### From Source
 
 TimelessStack requires three sibling repos checked out side-by-side:
