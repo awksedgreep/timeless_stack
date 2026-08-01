@@ -12,10 +12,15 @@ defmodule TimelessStack.UIDataSource do
   """
 
   @behaviour TimelessCanvas.DataSource
+
+  alias TimelessStack.UIDataSource.Cache
+
   @impl true
   def init(config) do
     store = Map.get(config, :metrics_store, :timeless_metrics)
-    {:ok, %{store: store}}
+    cache_name = Map.get(config, :cache_name, Cache)
+    cache_table = Map.get(config, :cache_table, Cache.default_table())
+    {:ok, %{store: store, cache_name: cache_name, cache_table: cache_table}}
   end
 
   @impl true
@@ -142,35 +147,13 @@ defmodule TimelessStack.UIDataSource do
   end
 
   @impl true
-  def list_hosts(state) do
-    {:ok, metric_names} = TimelessMetrics.list_metrics(state.store)
-
-    Enum.flat_map(metric_names, fn metric_name ->
-      case TimelessMetrics.label_values(state.store, metric_name, "host") do
-        {:ok, hosts} -> hosts
-        _ -> []
-      end
-    end)
-    |> Enum.uniq()
-    |> Enum.sort()
+  def list_hosts(state, opts \\ []) do
+    read_cached(state, {:label_values, "host"}, opts, fn host -> host end)
   end
 
   @impl true
-  def list_series_for_host(state, host) do
-    {:ok, metric_names} = TimelessMetrics.list_metrics(state.store)
-
-    Enum.flat_map(metric_names, fn metric_name ->
-      case TimelessMetrics.list_series(state.store, metric_name) do
-        {:ok, series_list} ->
-          series_list
-          |> Enum.filter(fn %{labels: labels} -> labels["host"] == host end)
-          |> Enum.map(fn %{labels: labels} -> {metric_name, labels} end)
-
-        _ ->
-          []
-      end
-    end)
-    |> Enum.uniq()
+  def list_series_for_host(state, host, opts \\ []) do
+    read_cached(state, {:host_series, host}, opts, fn {metric_name, _labels} -> metric_name end)
   end
 
   @impl true
@@ -179,20 +162,83 @@ defmodule TimelessStack.UIDataSource do
   end
 
   @impl true
-  def list_label_values(state, label_key) do
-    {:ok, metric_names} = TimelessMetrics.list_metrics(state.store)
+  def list_label_values(state, label_key, opts \\ []) do
+    read_cached(state, {:label_values, label_key}, opts, fn value -> value end)
+  end
 
-    Enum.flat_map(metric_names, fn metric_name ->
-      case TimelessMetrics.label_values(state.store, metric_name, label_key) do
-        {:ok, values} -> values
-        _ -> []
-      end
-    end)
-    |> Enum.uniq()
-    |> Enum.sort()
+  @impl true
+  def statuses(state, elements) do
+    since = DateTime.add(DateTime.utc_now(), -60, :second)
+    batch_statuses(state, elements, &status_host/1, since: since)
+  end
+
+  @impl true
+  def statuses_at(state, elements, %DateTime{} = time) do
+    since = DateTime.add(time, -60, :second)
+    batch_statuses(state, elements, &extract_host/1, since: since, until: time)
   end
 
   # --- Private ---
+
+  # Reads only from the ETS cache maintained by
+  # `TimelessStack.UIDataSource.Cache` — never enumerates the store on
+  # the request path. A miss (cold cache) returns `[]` and the async
+  # `ensure/2` cast triggers a background fetch/refresh.
+  defp read_cached(state, key, opts, name_fun) do
+    Cache.ensure(state.cache_name, key)
+
+    case Cache.get(state.cache_table, key) do
+      {:ok, values} -> TimelessCanvas.DataSource.apply_query_opts(values, opts, name_fun)
+      :miss -> []
+    end
+  end
+
+  # One grouped logs query per level (via `field_values/2`) covers every
+  # host in the batch, replacing up to 2 queries per host element.
+  defp batch_statuses(_state, elements, host_fun, window) do
+    host_by_element = Map.new(elements, fn element -> {element.id, host_fun.(element)} end)
+    any_host? = Enum.any?(host_by_element, fn {_id, host} -> not is_nil(host) end)
+
+    {error_hosts, warning_hosts} =
+      if any_host? do
+        {hosts_with_level(:error, window), hosts_with_level(:warning, window)}
+      else
+        {MapSet.new(), MapSet.new()}
+      end
+
+    Map.new(host_by_element, fn
+      {id, nil} ->
+        {id, :unknown}
+
+      {id, host} ->
+        cond do
+          MapSet.member?(error_hosts, host) -> {id, :error}
+          MapSet.member?(warning_hosts, host) -> {id, :warning}
+          true -> {id, :ok}
+        end
+    end)
+  end
+
+  defp hosts_with_level(level, window) do
+    since_dt = Keyword.fetch!(window, :since)
+    until_dt = Keyword.get(window, :until)
+
+    filters = [level: level, since: DateTime.to_unix(since_dt)]
+
+    filters =
+      if until_dt,
+        do: Keyword.put(filters, :until, DateTime.to_unix(until_dt)),
+        else: filters
+
+    case logs_mod().field_values("host", filters) do
+      {:ok, values} -> MapSet.new(values, fn %{"value" => value} -> value end)
+      _ -> MapSet.new()
+    end
+  end
+
+  defp logs_mod do
+    Application.get_env(:timeless_stack, :timeless_logs_module, TimelessLogs)
+  end
 
   defp extract_host(element) do
     meta = element.meta || %{}
@@ -322,13 +368,13 @@ defmodule TimelessStack.UIDataSource do
         else: base_filters
 
     # Check for errors first
-    case TimelessLogs.query([{:level, :error} | base_filters]) do
+    case logs_mod().query([{:level, :error} | base_filters]) do
       {:ok, %{entries: [_ | _]}} ->
         :error
 
       _ ->
         # Check for warnings
-        case TimelessLogs.query([{:level, :warning} | base_filters]) do
+        case logs_mod().query([{:level, :warning} | base_filters]) do
           {:ok, %{entries: [_ | _]}} -> :warning
           _ -> :ok
         end

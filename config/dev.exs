@@ -42,3 +42,8 @@ config :timeless_canvas, :data_source,
   module: TimelessStack.UIDataSource,
   config: %{metrics_store: :timeless_metrics},
   poll_interval: 2_000
+
+# Iconify looks for pre-generated icon SVGs relative to cwd by default;
+# point it at the set shipped with timeless_ui (served by its endpoint).
+config :iconify_ex,
+  generated_icon_static_path: "deps/timeless_ui/priv/static/images/icons"
