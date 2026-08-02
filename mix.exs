@@ -50,7 +50,7 @@ defmodule TimelessStack.MixProject do
       {:timeless_logs, "~> 1.4"},
       {:timeless_traces, "~> 1.3"},
       {:ex_openzl, "~> 0.4", override: true},
-      {:timeless_canvas, github: "awksedgreep/timeless_canvas", override: true},
+      {:timeless_canvas, github: "awksedgreep/timeless_canvas", tag: "v0.5.0", override: true},
       {:timeless_ui, github: "awksedgreep/timeless_ui"},
       {:hackney, "~> 1.20"},
       {:recon, "~> 2.5"}
