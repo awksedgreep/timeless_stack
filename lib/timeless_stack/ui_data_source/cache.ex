@@ -93,6 +93,7 @@ defmodule TimelessStack.UIDataSource.Cache do
     state = %{
       table: table,
       store: opt.(:store, default_store()),
+      metrics_module: opt.(:metrics_module, configured_metrics_module()),
       ttl: opt.(:ttl, @default_ttl),
       host_series_ttl: opt.(:host_series_ttl, @default_host_series_ttl),
       evict_after: opt.(:host_series_evict_after, @default_evict_after),
@@ -130,7 +131,11 @@ defmodule TimelessStack.UIDataSource.Cache do
     state = %{state | label_keys: MapSet.put(state.label_keys, label_key)}
 
     if stale?(state.table, key, state.ttl) do
-      store_result(state.table, key, fetch_label_values(state.store, label_key))
+      store_result(
+        state.table,
+        key,
+        fetch_label_values(state.metrics_module, state.store, label_key)
+      )
     end
 
     {:noreply, state}
@@ -138,7 +143,7 @@ defmodule TimelessStack.UIDataSource.Cache do
 
   def handle_cast({:ensure, {:host_series, host} = key}, state) do
     if stale?(state.table, key, state.host_series_ttl) do
-      store_result(state.table, key, fetch_host_series(state.store, host))
+      store_result(state.table, key, fetch_host_series(state.metrics_module, state.store, host))
     end
 
     {:noreply, state}
@@ -153,7 +158,7 @@ defmodule TimelessStack.UIDataSource.Cache do
       store_result(
         state.table,
         {:label_values, label_key},
-        fetch_label_values(state.store, label_key)
+        fetch_label_values(state.metrics_module, state.store, label_key)
       )
     end)
   end
@@ -191,13 +196,13 @@ defmodule TimelessStack.UIDataSource.Cache do
   # Bounded enumeration: one label_values/list_series store call per metric
   # name, results reduced immediately. Runs only inside this process.
 
-  defp fetch_label_values(store, label_key) do
-    {:ok, metric_names} = TimelessMetrics.list_metrics(store)
+  defp fetch_label_values(metrics_module, store, label_key) do
+    {:ok, metric_names} = metrics_module.list_metrics(store)
 
     values =
       metric_names
       |> Enum.flat_map(fn metric_name ->
-        case TimelessMetrics.label_values(store, metric_name, label_key) do
+        case metrics_module.label_values(store, metric_name, label_key) do
           {:ok, values} -> values
           _ -> []
         end
@@ -212,13 +217,13 @@ defmodule TimelessStack.UIDataSource.Cache do
     :exit, _ -> :error
   end
 
-  defp fetch_host_series(store, host) do
-    {:ok, metric_names} = TimelessMetrics.list_metrics(store)
+  defp fetch_host_series(metrics_module, store, host) do
+    {:ok, metric_names} = metrics_module.list_metrics(store)
 
     series =
       metric_names
       |> Enum.flat_map(fn metric_name ->
-        case TimelessMetrics.list_series(store, metric_name) do
+        case metrics_module.list_series(store, metric_name) do
           {:ok, series_list} ->
             for %{labels: labels} <- series_list,
                 labels["host"] == host,
@@ -242,6 +247,10 @@ defmodule TimelessStack.UIDataSource.Cache do
     |> Application.get_env(:data_source, [])
     |> Keyword.get(:config, %{})
     |> Map.get(:metrics_store, :timeless_metrics)
+  end
+
+  defp configured_metrics_module do
+    Application.get_env(:timeless_stack, :timeless_metrics_module, TimelessMetrics)
   end
 
   defp now_ms, do: System.monotonic_time(:millisecond)

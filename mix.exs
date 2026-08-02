@@ -46,12 +46,24 @@ defmodule TimelessStack.MixProject do
 
   defp deps do
     [
-      {:timeless_metrics, "~> 6.0"},
-      {:timeless_logs, "~> 1.4"},
-      {:timeless_traces, "~> 1.3"},
+      {:timeless_metrics,
+       github: "awksedgreep/timeless_metrics",
+       branch: "release/rust-telemetry-data-plane",
+       override: true},
+      {:timeless_logs,
+       github: "awksedgreep/timeless_logs",
+       branch: "release/rust-telemetry-data-plane",
+       override: true},
+      {:timeless_traces,
+       github: "awksedgreep/timeless_traces",
+       branch: "release/rust-telemetry-data-plane",
+       override: true},
       {:ex_openzl, "~> 0.4", override: true},
       {:timeless_canvas, github: "awksedgreep/timeless_canvas", override: true},
-      {:timeless_ui, github: "awksedgreep/timeless_ui"},
+      {:timeless_ui,
+       github: "awksedgreep/timeless_ui",
+       branch: "release/rust-telemetry-data-plane",
+       override: true},
       {:hackney, "~> 1.20"},
       {:recon, "~> 2.5"}
     ]

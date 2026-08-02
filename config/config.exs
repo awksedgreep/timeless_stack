@@ -4,9 +4,14 @@ import Config
 config :opentelemetry,
   traces_exporter: :none
 
-# TimelessMetrics: Rust storage engine (Pco compression, DashMap, BTreeMap index)
+# The release data-plane default is Rust HTTP + timeless-libsql. These library
+# applications stay loaded for migration/rollback APIs but own no runtime
+# database and start no Rocket listener.
+config :timeless_stack, data_plane_mode: :rust
+
 config :timeless_metrics,
-  engine: :rust,
+  owner: :external,
+  engine: :libsql,
   data_dir: "/data/metrics",
   port: 8428,
   raw_retention_seconds: 90 * 86_400,
@@ -14,6 +19,7 @@ config :timeless_metrics,
 
 # TimelessLogs: server-grade settings for dedicated stack host
 config :timeless_logs,
+  owner: :external,
   storage: :disk,
   data_dir: "/data/logs",
   http: [port: 9428],
@@ -27,6 +33,7 @@ config :timeless_logs,
 
 # TimelessTraces: server-grade settings for dedicated stack host
 config :timeless_traces,
+  owner: :external,
   storage: :disk,
   data_dir: "/data/traces",
   http: [port: 10428],
@@ -84,17 +91,31 @@ config :timeless_canvas,
 # Wire TimelessCanvas to use real stack backends
 config :timeless_canvas, :data_source,
   module: TimelessStack.UIDataSource,
-  config: %{metrics_store: :timeless_metrics},
+  config: %{
+    metrics_store: :timeless_metrics,
+    metrics_module: TimelessStack.MetricsDataPlane
+  },
   poll_interval: 5_000
 
 config :timeless_canvas, :stream_backends,
-  log: TimelessLogs,
-  trace: TimelessTraces
+  log: TimelessStack.LogsDataPlane,
+  trace: TimelessStack.TracesDataPlane
 
 # Route TimelessUI's own spans into TimelessTraces
 config :opentelemetry,
   resource: [service: [name: "timeless_ui"]],
-  traces_exporter: {TimelessTraces.Exporter, []}
+  traces_exporter: {TimelessStack.TracesExporter, []}
+
+config :timeless_stack,
+  timeless_metrics_module: TimelessStack.MetricsDataPlane,
+  timeless_logs_module: TimelessStack.LogsDataPlane
+
+config :timeless_stack, TimelessStack.UIDataSource.Cache,
+  metrics_module: TimelessStack.MetricsDataPlane
+
+config :timeless_ui, :poller, metrics_writer: TimelessUI.MetricsDataPlane.Writer
+
+config :timeless_ui, :metrics_scraper_mode, :rust
 
 # Asset build tools for TimelessUI
 config :esbuild,

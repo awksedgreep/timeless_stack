@@ -14,15 +14,21 @@ defmodule TimelessStack do
   def version, do: @version
 
   @doc """
-  Backs up all three databases into subdirectories of `target_dir`.
+  Requests a coordinated telemetry backup.
 
-  Creates the following layout:
-      target_dir/
-        metrics/
-        logs/
-        traces/
+  Session 6 supplies the drain/checkpoint/manifest workflow. Rust mode refuses
+  the old direct-owner backup calls so Phoenix can never open a telemetry
+  database behind the Rust process.
   """
-  def backup(target_dir) do
+  def backup(target_dir) when is_binary(target_dir) do
+    if data_plane_mode() == :rust do
+      {:error, {:unsupported_capability, :coordinated_backup_pending_session_6}}
+    else
+      embedded_backup(target_dir)
+    end
+  end
+
+  defp embedded_backup(target_dir) do
     metrics_dir = Path.join(target_dir, "metrics")
     logs_dir = Path.join(target_dir, "logs")
     traces_dir = Path.join(target_dir, "traces")
@@ -53,20 +59,48 @@ defmodule TimelessStack do
   Returns aggregated info/stats from all three services.
   """
   def info do
-    %{
-      metrics: TimelessMetrics.info(:timeless_metrics),
-      logs: TimelessLogs.stats(),
-      traces: TimelessTraces.stats()
-    }
+    if data_plane_mode() == :rust do
+      %{
+        metrics: TimelessStack.MetricsDataPlane.info(:timeless_metrics),
+        logs: unwrap(TimelessStack.LogsDataPlane.stats()),
+        traces: unwrap(TimelessStack.TracesDataPlane.stats())
+      }
+    else
+      %{
+        metrics: TimelessMetrics.info(:timeless_metrics),
+        logs: TimelessLogs.stats(),
+        traces: TimelessTraces.stats()
+      }
+    end
   end
 
   @doc """
   Flushes all three services' buffers to disk.
   """
   def flush do
-    TimelessMetrics.flush(:timeless_metrics)
-    TimelessLogs.flush()
-    TimelessTraces.flush()
-    :ok
+    results =
+      if data_plane_mode() == :rust do
+        %{
+          metrics: TimelessStack.MetricsDataPlane.flush(:timeless_metrics),
+          logs: TimelessStack.LogsDataPlane.flush(),
+          traces: TimelessStack.TracesDataPlane.flush()
+        }
+      else
+        %{
+          metrics: TimelessMetrics.flush(:timeless_metrics),
+          logs: TimelessLogs.flush(),
+          traces: TimelessTraces.flush()
+        }
+      end
+
+    failures = Map.reject(results, fn {_signal, result} -> success?(result) end)
+    if map_size(failures) == 0, do: :ok, else: {:error, failures}
   end
+
+  defp data_plane_mode, do: Application.get_env(:timeless_stack, :data_plane_mode, :rust)
+  defp unwrap({:ok, result}), do: result
+  defp unwrap({:error, reason}), do: %{error: reason}
+  defp success?(:ok), do: true
+  defp success?({:ok, _result}), do: true
+  defp success?(_result), do: false
 end

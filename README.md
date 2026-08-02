@@ -97,11 +97,24 @@ docker build -t timeless-stack -f timeless_stack/Dockerfile .
 
 ## Architecture
 
-TimelessStack is a thin orchestration layer. Each component runs as a supervised OTP application:
+TimelessStack is a thin orchestration layer. The default production data
+plane is three supervised, signal-specific Rust API processes backed by the
+public `timeless-libsql` extension. Phoenix remains the control plane and the
+legacy embedded engines remain available only through the documented offline
+rollback window.
 
-- **TimelessMetrics** -- Prometheus-compatible time-series storage using Gorilla compression (delta-of-delta timestamps, XOR'd float values) backed by SQLite.
-- **TimelessLogs** -- Structured log storage with SQLite index and compressed blocks (zstd/openzl columnar format).
-- **TimelessTraces** -- OpenTelemetry-compatible span storage using the same block architecture as logs.
+The exact supported API/query surface, limits, ownership boundary, and
+rollback procedure are frozen in
+[`docs/telemetry_data_plane_compatibility.md`](docs/telemetry_data_plane_compatibility.md).
+
+The bundled components are:
+
+- **TimelessMetrics** -- Prometheus-compatible time-series storage and
+  extension-owned rollups in libSQL.
+- **TimelessLogs** -- Structured rich-log storage in the libSQL block virtual
+  table.
+- **TimelessTraces** -- OpenTelemetry-compatible rich spans in the libSQL
+  trace virtual table.
 - **TimelessUI** -- Phoenix LiveView dashboard with real-time canvas visualization, alerting, and metric/log/trace exploration.
 
 ## Data Retention
