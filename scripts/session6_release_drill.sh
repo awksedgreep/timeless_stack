@@ -36,6 +36,17 @@ test -f "$extension"
   test/timeless_traces/legacy_reader_test.exs \
   test/timeless_traces/release_startup_test.exs)
 
+# Migration tests must load the exact release candidate. Falling back to a
+# signal repository's historical preview extension does not exercise the
+# production data ABI and can turn a gate into a false failure (or, worse,
+# validate the wrong storage implementation).
+(cd "$workspace/timeless_metrics" && TIMELESS_EXT_PATH="$extension" \
+  mix test test/release_migration_test.exs)
+(cd "$workspace/timeless_logs" && TIMELESS_EXT_PATH="$extension" \
+  mix test test/timeless_logs/release_migration_test.exs)
+(cd "$workspace/timeless_traces" && TIMELESS_EXT_PATH="$extension" \
+  mix test test/timeless_traces/release_migration_test.exs)
+
 (
   cd "$libsql/servers"
   TIMELESS_EXT_PATH="$extension" TIMELESS_EXT_TEST_PATH="$extension" \
