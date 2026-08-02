@@ -20,9 +20,9 @@ defmodule TimelessStack do
   the old direct-owner backup calls so Phoenix can never open a telemetry
   database behind the Rust process.
   """
-  def backup(target_dir) when is_binary(target_dir) do
+  def backup(target_dir, opts \\ []) when is_binary(target_dir) and is_list(opts) do
     if data_plane_mode() == :rust do
-      {:error, {:unsupported_capability, :coordinated_backup_pending_session_6}}
+      TimelessStack.Backup.create(target_dir, opts)
     else
       embedded_backup(target_dir)
     end

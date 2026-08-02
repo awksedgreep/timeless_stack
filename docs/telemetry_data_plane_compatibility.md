@@ -156,11 +156,19 @@ fail with stable errors; partial responses are not exposed.
 
 ## Backup status
 
-Coordinated Rust-owner backup is intentionally unavailable until release
-Session 6. `TimelessStack.backup/1` returns
-`{:unsupported_capability, :coordinated_backup_pending_session_6}` in Rust
-mode rather than opening a second telemetry connection. Do not copy an open
-database by hand.
+Rust-mode backup is coordinated through `TimelessStack.backup/2`. It first
+drains the Phoenix logs transport buffer, then asks each owning Rust process
+to flush, optimize, checkpoint, and copy its database through the SQLite
+online-backup API. Phoenix never opens a telemetry database. The snapshot also
+contains the Phoenix control database, authorization policy files, exact
+build/health reports, checksums, the original storage layout, and every
+immutable legacy source retained for rollback.
+
+A backup is rejected while any signal is migrating or not ready. Publication
+is atomic and never overwrites an existing path. Restore is offline-only into
+a new or empty data directory and verifies the complete checksum inventory,
+SQLite integrity, and signal schema ledger before publication. See
+[`telemetry_data_plane_operations.md`](telemetry_data_plane_operations.md).
 
 ## Time-limited offline rollback
 
@@ -182,6 +190,7 @@ for removal in 0.9.0. It is offline only:
 The acknowledgement is required so rollback cannot be selected accidentally.
 Writes accepted by the new libSQL owner after cutover are not present in the
 immutable legacy rollback source; running legacy mode therefore creates a
-divergent timeline. Do not alternate owners. Session 6 supplies the supported
-backup, re-upgrade, and rollback drills. Legacy data is never deleted
-automatically.
+divergent timeline. Do not alternate owners. For an exact rollback including
+post-cutover writes, restore a verified release backup to a separate data
+directory and use a compatible Rust/libSQL release. Legacy data is never
+deleted automatically.

@@ -81,6 +81,8 @@ defmodule TimelessStack.MetricsDataPlane do
     do: {:error, {:unsupported_capability, :metrics_metadata_registry}}
 
   def flush(_store), do: client().flush()
+  def backup(destination), do: client().backup(destination, timeout: 300_000)
+  def health, do: client().health()
 
   defp client do
     Application.get_env(:timeless_stack, :metrics_data_plane_client, Client)

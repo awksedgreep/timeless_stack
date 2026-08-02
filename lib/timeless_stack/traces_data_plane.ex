@@ -5,6 +5,8 @@ defmodule TimelessStack.TracesDataPlane do
 
   def stats, do: client().stats()
   def flush, do: client().flush()
+  def backup(destination), do: client().backup(destination, timeout: 300_000)
+  def health, do: client().health()
   def search(filters \\ []), do: client().search(filters)
   def trace(trace_id), do: client().trace(trace_id)
 

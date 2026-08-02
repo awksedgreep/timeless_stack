@@ -3,6 +3,49 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
 
   alias TimelessStack.{LogsDataPlane, MetricsDataPlane, TracesExporter}
 
+  defmodule BackupSQLite do
+    def signal(destination, signal) do
+      {:ok, connection} = Exqlite.Sqlite3.open(destination)
+
+      {:ok, _} =
+        TimelessMetrics.DB.execute(
+          connection,
+          "CREATE TABLE _timeless_schema_migrations(signal TEXT, version INTEGER);",
+          []
+        )
+
+      {:ok, _} =
+        TimelessMetrics.DB.execute(
+          connection,
+          "INSERT INTO _timeless_schema_migrations VALUES (?1, 1)",
+          [signal]
+        )
+
+      :ok = Exqlite.Sqlite3.close(connection)
+      :ok
+    end
+
+    def control(destination) do
+      {:ok, connection} = Exqlite.Sqlite3.open(destination)
+      {:ok, _} = TimelessMetrics.DB.execute(connection, "CREATE TABLE users(id INTEGER)", [])
+      :ok = Exqlite.Sqlite3.close(connection)
+      :ok
+    end
+  end
+
+  defmodule BackupStartup do
+    def stats(data_dir, opts) do
+      signal = Keyword.fetch!(opts, :signal)
+
+      %{
+        ready: true,
+        state: :valid_libsql,
+        target_path: Path.join(data_dir, "#{signal}.db"),
+        source_manifest_digest: Keyword.get(opts, :source_manifest_digest)
+      }
+    end
+  end
+
   defmodule MetricsClient do
     def export(metric, labels, from, to) do
       send(self(), {:metrics_export, metric, labels, from, to})
@@ -24,6 +67,22 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
     def series("cpu"), do: {:ok, [%{"labels" => %{"host" => "edge"}}]}
     def stats, do: {:ok, %{"oldest_timestamp_seconds" => 10, "newest_timestamp_seconds" => 20}}
     def flush, do: {:ok, %{"completed_points" => 2}}
+
+    def backup(destination, _opts) do
+      :ok = BackupSQLite.signal(destination, "metrics")
+      {:ok, backup_report("metrics", destination)}
+    end
+
+    def health, do: {:ok, %{"status" => "ok", "build" => %{"version" => "test"}}}
+
+    defp backup_report(signal, destination) do
+      %{
+        "signal" => signal,
+        "destination" => destination,
+        "bytes" => File.stat!(destination).size,
+        "schema_version" => 1
+      }
+    end
   end
 
   defmodule LogsClient do
@@ -40,6 +99,20 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
     def stats, do: {:ok, %{entries: 1}}
     def flush, do: {:ok, %{completed_entries: 1}}
     def ingest(entries), do: {:ok, length(entries)}
+
+    def backup(destination, _opts) do
+      :ok = BackupSQLite.signal(destination, "logs")
+
+      {:ok,
+       %{
+         "signal" => "logs",
+         "destination" => destination,
+         "bytes" => File.stat!(destination).size,
+         "schema_version" => 1
+       }}
+    end
+
+    def health, do: {:ok, %{"status" => "ok", "build" => %{"version" => "test"}}}
   end
 
   defmodule TracesClient do
@@ -47,17 +120,37 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
       send(self(), {:otlp, body, opts})
       {:ok, %{}}
     end
+
+    def stats, do: {:ok, %{"total_spans" => 1}}
+    def flush, do: {:ok, %{"completed_spans" => 1}}
+
+    def backup(destination, _opts) do
+      :ok = BackupSQLite.signal(destination, "traces")
+
+      {:ok,
+       %{
+         "signal" => "traces",
+         "destination" => destination,
+         "bytes" => File.stat!(destination).size,
+         "schema_version" => 1
+       }}
+    end
+
+    def health, do: {:ok, %{"status" => "ready", "build" => %{"version" => "test"}}}
   end
 
   setup do
     old_metrics = Application.get_env(:timeless_stack, :metrics_data_plane_client)
     old_logs = Application.get_env(:timeless_stack, :logs_data_plane_client)
+    old_traces = Application.get_env(:timeless_stack, :traces_data_plane_client)
     Application.put_env(:timeless_stack, :metrics_data_plane_client, MetricsClient)
     Application.put_env(:timeless_stack, :logs_data_plane_client, LogsClient)
+    Application.put_env(:timeless_stack, :traces_data_plane_client, TracesClient)
 
     on_exit(fn ->
       restore(:metrics_data_plane_client, old_metrics)
       restore(:logs_data_plane_client, old_logs)
+      restore(:traces_data_plane_client, old_traces)
     end)
   end
 
@@ -105,16 +198,102 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
     refute_received {:logs_query, _filters}
   end
 
-  test "Rust mode never invokes direct-owner backup" do
+  test "Rust mode coordinates one checksummed no-clobber backup through the three owners" do
     previous = Application.get_env(:timeless_stack, :data_plane_mode)
-    target = Path.join(System.tmp_dir!(), "timeless-backup-refusal-#{System.unique_integer()}")
+    root = Path.join(System.tmp_dir!(), "timeless-backup-#{System.unique_integer([:positive])}")
+    target = Path.join(root, "snapshot")
+    File.mkdir_p!(root)
+    legacy_file = Path.join([root, "source", "metrics", "rust_engine", "block-1"])
+    File.mkdir_p!(Path.dirname(legacy_file))
+    File.write!(legacy_file, "immutable-legacy-source")
+    File.touch!(legacy_file, 1_700_000_000)
     Application.put_env(:timeless_stack, :data_plane_mode, :rust)
-    on_exit(fn -> restore(:data_plane_mode, previous) end)
 
-    assert {:error, {:unsupported_capability, :coordinated_backup_pending_session_6}} =
-             TimelessStack.backup(target)
+    on_exit(fn ->
+      restore(:data_plane_mode, previous)
+      File.rm_rf(root)
+    end)
 
-    refute File.exists?(target)
+    control_backup = &BackupSQLite.control/1
+    owner = self()
+
+    logs_buffer_flush = fn ->
+      send(owner, :logs_buffer_flushed)
+      :ok
+    end
+
+    data_planes =
+      Enum.map([:metrics, :logs, :traces], fn signal ->
+        [
+          signal: signal,
+          extension: "/not-used",
+          data_dir: Path.join([root, "source", Atom.to_string(signal)]),
+          startup_module: BackupStartup,
+          startup_opts:
+            [signal: signal] ++
+              if(signal == :metrics,
+                do: [source_manifest_digest: "retained-metrics-digest"],
+                else: []
+              )
+        ]
+      end)
+
+    legacy_manifest = fn
+      :metrics, data_dir, _opts ->
+        {:ok,
+         %{
+           digest: "retained-metrics-digest",
+           bytes: File.stat!(legacy_file).size,
+           json: ~s({"version":1,"signal":"metrics"}),
+           files: [
+             %{
+               path: Path.relative_to(legacy_file, data_dir),
+               size: File.stat!(legacy_file).size,
+               mtime: File.stat!(legacy_file, time: :posix).mtime,
+               sha256:
+                 :crypto.hash(:sha256, File.read!(legacy_file)) |> Base.encode16(case: :lower)
+             }
+           ]
+         }}
+    end
+
+    assert {:ok, %{path: ^target}} =
+             TimelessStack.backup(target,
+               data_planes: data_planes,
+               control_backup: control_backup,
+               logs_buffer_flush: logs_buffer_flush,
+               legacy_manifest: legacy_manifest
+             )
+
+    assert_received :logs_buffer_flushed
+
+    for file <- ~w(metrics.db logs.db traces.db control.db manifest.json SHA256SUMS) do
+      assert File.regular?(Path.join(target, file))
+    end
+
+    assert {:ok, %{"format_version" => 1, "signals" => signals}} =
+             TimelessStack.Backup.verify(target)
+
+    assert Map.keys(signals) |> Enum.sort() == ~w(logs metrics traces)
+
+    restore = Path.join(root, "restored")
+    assert {:ok, %{path: ^restore}} = TimelessStack.Backup.restore(target, restore)
+
+    for signal <- ~w(metrics logs traces) do
+      assert File.regular?(Path.join([restore, signal, "#{signal}.db"]))
+    end
+
+    assert File.regular?(Path.join(restore, "timeless_ui.db"))
+
+    assert File.read!(Path.join([restore, "metrics", "rust_engine", "block-1"])) ==
+             "immutable-legacy-source"
+
+    assert {:error, {:prepare_backup, :destination_exists}} =
+             TimelessStack.backup(target,
+               data_planes: data_planes,
+               control_backup: control_backup,
+               legacy_manifest: legacy_manifest
+             )
   end
 
   test "trace exporter uses the SDK OTLP encoder and preserves rich fields" do

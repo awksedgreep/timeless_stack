@@ -2,6 +2,7 @@
 !timeless_stack/
 !timeless_metrics/
 !timeless_ui/
+!timeless-libsql/
 */_build/
 */deps/
 */cover/
@@ -9,5 +10,7 @@
 */tmp/
 */.git/
 */data/
+*/dist/
+*/target/
 *.ez
 erl_crash.dump

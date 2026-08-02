@@ -15,6 +15,8 @@ defmodule TimelessStack.LogsDataPlane do
 
   def stats, do: client().stats()
   def flush, do: client().flush()
+  def backup(destination), do: client().backup(destination, timeout: 300_000)
+  def health, do: client().health()
 
   def ingest(entries) when is_list(entries), do: client().ingest(entries)
 
