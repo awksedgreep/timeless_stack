@@ -51,7 +51,8 @@ sudo /opt/timeless/telemetry-data-plane/<release-id>/uninstall.sh \
 This removes only links owned by that release and, unless `--keep-artifact` is
 used, its immutable artifact directory. It never removes telemetry data,
 configuration, backups, or legacy rollback sources. There is no automatic
-data-cleanup command in Session 6.
+data cleanup. Legacy cleanup is a separate, explicit post-rollback-window
+operation described below.
 
 ## Fresh start and readiness
 
@@ -168,3 +169,54 @@ Never alternate owners against one directory. A re-upgrade starts from either
 the untouched retained legacy source or a separately restored libSQL data
 tree, never from a mixed directory. Unsupported downgrade must be treated as
 a closed compatibility error; do not edit the schema ledger to force it.
+
+## Explicit legacy-source cleanup after the rollback window
+
+Do not perform this procedure during the first-release rollback window. It is
+eligible only after every node is on a release where the documented legacy
+rollback selector has expired, the libSQL timeline has been accepted, and at
+least one verified backup containing the retained source exists outside the
+live data filesystem. Cleanup is irreversible from the live tree; recovery
+afterward requires that backup.
+
+1. Create a coordinated backup and run `TimelessStack.Backup.verify/1` as
+   shown above. Record the backup path and verification result.
+2. Stop the complete Stack release and confirm the Phoenix and all three Rust
+   owner PIDs have exited.
+3. Read each signal's `source_manifest_digest` from the last authenticated
+   readiness/stats report or the verified backup manifest. Compare it with
+   the final retained-source manifest. Do not proceed if either value is
+   absent or differs.
+4. Require a second operator to confirm the exact signal, data directory,
+   backup path, and digest. There is deliberately no wildcard/all-signals
+   cleanup command.
+5. Run one explicit command per confirmed signal, substituting the recorded
+   64-character digest. The function re-reads and hashes the source, requires
+   completed cutover, checks the digest again under exclusive ownership,
+   removes only the manifest-listed legacy source, and records
+   `source_retained=0` in the cutover ledger:
+
+   ```sh
+   TIMELESS_EXT_PATH=/opt/timeless/lib/libtimeless_ext.so \
+   bin/timeless_stack eval '
+   root = System.get_env("TIMELESS_DATA_DIR", "/data")
+   extension = System.fetch_env!("TIMELESS_EXT_PATH")
+   digest = "REPLACE_WITH_CONFIRMED_METRICS_SOURCE_MANIFEST_DIGEST"
+   IO.inspect(
+     TimelessMetrics.ReleaseStartup.cleanup_legacy(
+       Path.join(root, "metrics"), digest, extension_path: extension
+     )
+   )
+   '
+   ```
+
+   For logs or traces, replace the module with
+   `TimelessLogs.ReleaseStartup` or `TimelessTraces.ReleaseStartup`, replace
+   the directory name, and supply that signal's own digest.
+6. Restart the release, require all three signals to report ready, create a
+   new coordinated backup, and rerun semantic smoke queries.
+
+Never delete `rust_engine/`, `blocks/`, legacy SQLite indexes, cutover ledgers,
+or migration directories with filesystem commands. If cleanup fails, leave
+the tree stopped and use the actionable error; do not edit a manifest or
+ledger to force it.
