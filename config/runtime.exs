@@ -33,6 +33,8 @@ if config_env() == :prod do
   # images must opt into an externally reachable bind because the Rust owners
   # run in the same network namespace as Phoenix but are published separately.
   telemetry_bind = System.get_env("TIMELESS_TELEMETRY_BIND", "127.0.0.1")
+  telemetry_bind_env =
+    if telemetry_bind == "127.0.0.1", do: %{}, else: %{"TIMELESS_ALLOW_NON_LOOPBACK" => "1"}
 
   metrics_retention_raw =
     System.get_env("TIMELESS_METRICS_RETENTION_RAW", "7") |> String.to_integer()
@@ -101,7 +103,8 @@ if config_env() == :prod do
         startup_module: TimelessMetrics.ReleaseStartup,
         auth_mode: :required,
         auth_policy_path: Path.join(auth_dir, "metrics.json"),
-        tenant: tenant
+        tenant: tenant,
+        env: telemetry_bind_env
       ],
       [
         signal: :logs,
@@ -114,7 +117,8 @@ if config_env() == :prod do
         startup_opts: [retention_seconds: logs_retention_age],
         auth_mode: :required,
         auth_policy_path: Path.join(auth_dir, "logs.json"),
-        tenant: tenant
+        tenant: tenant,
+        env: telemetry_bind_env
       ],
       [
         signal: :traces,
@@ -128,7 +132,12 @@ if config_env() == :prod do
         auth_mode: :required,
         auth_policy_path: Path.join(auth_dir, "traces.json"),
         tenant: tenant,
-        env: %{"TIMELESS_TRACES_RETENTION_SECS" => Integer.to_string(traces_retention_age)}
+        env:
+          Map.put(
+            telemetry_bind_env,
+            "TIMELESS_TRACES_RETENTION_SECS",
+            Integer.to_string(traces_retention_age)
+          )
       ]
     ]
 
