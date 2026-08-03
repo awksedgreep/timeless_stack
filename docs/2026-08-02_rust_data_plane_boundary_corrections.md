@@ -2,7 +2,7 @@
 
 Date: 2026-08-02
 Branch: `release/rust-telemetry-data-plane`
-Status: correction sessions C0-C4 implemented; final clean release gate remains
+Status: correction sessions C0-C5 implemented; validated Linux release gate green
 
 ## Scope decision
 
@@ -157,10 +157,12 @@ schema URLs, and dropped counts without synthesizing values.
 
 Exit criterion: every correction-session criterion passes from clean clones;
 the checked evidence identifies the exact UI, Canvas, Stack, signal, and native
-heads; only then may the release verdict be restored. **Not yet satisfied:**
-the current gate is recorded in
-`docs/2026-08-02_rust_data_plane_c5_gate.md`; extension-backed contracts and
-Canvas browser E2E still require their native/browser environments.
+heads; only then may the release verdict be restored. **Satisfied for the
+validated Linux artifact:** the native extension contracts, CLI suite, strict
+Clippy, packaging/install drill, Canvas browser E2E, and short three-signal
+fault gate are recorded in
+`docs/2026-08-02_rust_data_plane_c5_gate.md`. The longer two-hour-per-signal
+soak remains an operational recommendation.
 
 ## Commit policy
 

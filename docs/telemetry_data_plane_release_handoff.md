@@ -6,9 +6,8 @@ Promotion branch: `release/rust-telemetry-data-plane`
 
 ## Release verdict
 
-The boundary corrections are implemented on the promotion branches. The final
-release verdict remains open only for native-extension contract execution and
-Canvas browser E2E, as recorded in
+The boundary corrections are implemented on the promotion branches. The
+validated Linux release gate is green; its exact evidence is recorded in
 [`2026-08-02_rust_data_plane_c5_gate.md`](2026-08-02_rust_data_plane_c5_gate.md).
 The former Rust-mode Elixir scrape parser, storage-shaped BEAM batch, stale UI
 and Canvas pins, and ambiguous trace-fidelity wording are corrected:
@@ -147,11 +146,7 @@ remain diagnostic evidence, not a claim of zero growth.
 - Logical optimize is not physical vacuum. Production does not run a blocking
   full `VACUUM` against an active owner; page/freelist reuse and physical HWM
   remain separate measurements.
-- The release verdict remains open until every exit criterion in
-  `2026-08-02_rust_data_plane_boundary_corrections.md` passes and evidence is
-  regenerated from the exact corrected heads.
-- The current local gate cannot load the built `timeless_ext`, so ten
-  extension-backed storage contracts are ignored; run them in the native build
-  environment before release.
-- Canvas reports 258 unit tests green with 15 browser E2E cases excluded; run
-  the browser sidecar gate before release.
+- The validated gate is a Linux x86_64 artifact. Repeat the packaging and
+  browser matrix for each additional release target before publishing it.
+- The evidence gate is a 120-second short soak. Run the existing two-hour per
+  signal production soak when scheduling the final production rollout.
