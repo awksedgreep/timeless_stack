@@ -6,15 +6,17 @@ Promotion branch: `release/rust-telemetry-data-plane`
 
 ## Release verdict
 
-The functional, migration, control-plane, short fault, clean-CI, packaging,
-install/removal, backup/restore, and rollback gates pass for metrics, logs, and
-traces. The final production verdict remains pending only the exact-build
-160-minute sustained gate at `timeless-libsql`
-`bab775035785b78e0d9879b7d871bbd938e92991`. Do not tag or deploy the default
-replacement until its checked-in evidence reports `verdict: passed`.
+Release with named limitations for metrics, logs, traces, and the combined
+Stack. Functional, migration, control-plane, clean-CI, packaging,
+install/removal, backup/restore, rollback, short fault, and exact-build
+160-minute sustained gates all pass. The sustained gate ran from
+`timeless-libsql` `bab775035785b78e0d9879b7d871bbd938e92991` for 9,602.37
+seconds, or 8.00197 aggregate signal-hours, and recorded all 12 fault events as
+passed with no workload errors.
 
-The verdict will be recorded per signal and for the combined Stack; a failure
-is a release blocker and is not averaged against faster signals.
+The checked evidence is
+`timeless-libsql/docs/evidence/2026-08-02_release_gate_bab7750.json`, SHA-256
+`8d3472a3b7843b759e1a1fda830c2668b89da5c96ffa1025aa2069c10158d11d`.
 
 ## Compatibility and migration statement
 
@@ -108,6 +110,12 @@ the documented 10-second hard release ceiling. Treat corrupt, incompatible,
 ambiguous, disk-full, read-only, owner-conflict, and capability errors as
 closed operational incidents.
 
+The slope alert applies to a generation alive for at least two hours and must
+be interpreted with retained live-set growth. The release fault schedule kept
+each generation shorter; trace RSS nevertheless remained bounded at 206,236
+KiB while its live index reached 2,457,600 spans. Short-generation trace slopes
+remain diagnostic evidence, not a claim of zero growth.
+
 ## Honest tradeoffs and remaining blockers
 
 - Rich logs retain exact eight-level severity, microseconds, and typed nested
@@ -122,6 +130,8 @@ closed operational incidents.
 - Selecting the retained legacy rollback source after cutover creates a
   divergent timeline by definition; use verified backup restore when
   post-cutover writes must survive rollback.
-- Final blocker: the authoritative sustained-gate evidence must pass and be
-  reviewed. There are no other known implementation, migration, packaging,
-  artifact, or operator-documentation blockers.
+- Logical optimize is not physical vacuum. Production does not run a blocking
+  full `VACUUM` against an active owner; page/freelist reuse and physical HWM
+  remain separate measurements.
+- There are no remaining known implementation, correctness, durability,
+  migration, packaging, artifact, or operator-documentation blockers.
