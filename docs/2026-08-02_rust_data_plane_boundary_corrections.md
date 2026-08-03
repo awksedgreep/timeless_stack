@@ -157,7 +157,10 @@ schema URLs, and dropped counts without synthesizing values.
 
 Exit criterion: every correction-session criterion passes from clean clones;
 the checked evidence identifies the exact UI, Canvas, Stack, signal, and native
-heads; only then may the release verdict be restored.
+heads; only then may the release verdict be restored. **Not yet satisfied:**
+the current gate is recorded in
+`docs/2026-08-02_rust_data_plane_c5_gate.md`; extension-backed contracts and
+Canvas browser E2E still require their native/browser environments.
 
 ## Commit policy
 

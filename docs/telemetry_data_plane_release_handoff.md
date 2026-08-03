@@ -6,20 +6,17 @@ Promotion branch: `release/rust-telemetry-data-plane`
 
 ## Release verdict
 
-Release verdict reopened. The previously recorded functional, migration,
-control-plane, clean-CI, packaging, install/removal, backup/restore, rollback,
-short-fault, and exact-build 160-minute sustained gates passed, but a later
-boundary audit found release blockers that those gates did not cover:
+The boundary corrections are implemented on the promotion branches. The final
+release verdict remains open only for native-extension contract execution and
+Canvas browser E2E, as recorded in
+[`2026-08-02_rust_data_plane_c5_gate.md`](2026-08-02_rust_data_plane_c5_gate.md).
+The former Rust-mode Elixir scrape parser, storage-shaped BEAM batch, stale UI
+and Canvas pins, and ambiguous trace-fidelity wording are corrected:
 
-- Rust-mode Prometheus scraping still parses exposition with an Elixir regex
-  and re-encodes samples instead of using the existing fused Rust/SQLite
-  parser.
-- A bespoke 8,192-entry BEAM logs transport buffer duplicates the shape of
-  the extension's authoritative storage batch.
-- The Stack lockfile does not contain the selected current TimelessUI and
-  TimelessCanvas revisions.
-- The trace-fidelity claim needs an exact supported-field audit so it cannot
-  be read as preservation of OTLP fields the storage model never retained.
+- Rust-mode Prometheus scraping now uses the Rust controller and fused parser.
+- The BEAM Logger bridge is bounded to transport-only batches below 8,192.
+- Stack pins the selected current TimelessUI and TimelessCanvas revisions.
+- Trace fidelity has an exact supported/unsupported field inventory.
 
 The sequential correction plan and exit criteria are checked in at
 [`2026-08-02_rust_data_plane_boundary_corrections.md`](2026-08-02_rust_data_plane_boundary_corrections.md).
@@ -153,3 +150,8 @@ remain diagnostic evidence, not a claim of zero growth.
 - The release verdict remains open until every exit criterion in
   `2026-08-02_rust_data_plane_boundary_corrections.md` passes and evidence is
   regenerated from the exact corrected heads.
+- The current local gate cannot load the built `timeless_ext`, so ten
+  extension-backed storage contracts are ignored; run them in the native build
+  environment before release.
+- Canvas reports 258 unit tests green with 15 browser E2E cases excluded; run
+  the browser sidecar gate before release.
