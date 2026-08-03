@@ -2,7 +2,7 @@
 
 Date: 2026-08-02
 Branch: `release/rust-telemetry-data-plane`
-Status: release verdict reopened; work required before a new verdict
+Status: correction sessions C0-C4 implemented; final clean release gate remains
 
 ## Scope decision
 
@@ -70,7 +70,11 @@ fixtures are reproducible.
 Exit criterion: no Rust-mode Prometheus scrape is parsed in Elixir; the Rust
 process owns the complete scrape-to-storage path; target administration and
 health work through Phoenix; correctness and resource gates pass without a
-silent legacy fallback.
+silent legacy fallback. **Satisfied:** `timeless-libsql`
+`afde954` provides the Rust controller/parser path and authenticated target
+replacement; `timeless_ui` `7a8d3f3`/`83db76e` persists and synchronizes targets,
+skips duplicate Rust-mode Poller jobs, and retains embedded parsing only behind
+the explicit rollback mode. Rust and UI unit suites pass.
 
 ## Session C2 — remove storage-shaped batching from BEAM bridges
 
@@ -91,6 +95,10 @@ silent legacy fallback.
 Exit criterion: the only Elixir participation in logs/traces ingestion is the
 minimal export of telemetry that originates inside the BEAM; no BEAM queue
 claims or duplicates the extension's 8,192-entry storage policy.
+**Satisfied for the Logger bridge:** `timeless_ui` `9a745c6` bounds the BEAM
+transport queue at 256 entries and leaves batching/compression/storage to Rust.
+The OTEL exporter remains a transport envelope and is covered by the existing
+trace data-plane contract; a final mixed-workload gate remains in C5.
 
 ## Session C3 — current TimelessUI and TimelessCanvas
 
@@ -112,6 +120,10 @@ claims or duplicates the extension's 8,192-entry storage policy.
 Exit criterion: the Stack release reproducibly contains the selected current
 UI and Canvas commits, all assets and tests pass, and every telemetry surface
 uses the corrected Rust/control-plane boundary.
+**Satisfied:** UI icon catalog commit `83db76e170add578a34881415083d2e099242423`
+is on the release branch; Stack pins it and Canvas
+`72636bfd8120926679ce4c538b213e7db01a950` in `mix.lock`. Clean dependency and
+browser gates are recorded in C5.
 
 ## Session C4 — trace fidelity wording and contract audit
 
@@ -128,6 +140,9 @@ uses the corrected Rust/control-plane boundary.
 
 Exit criterion: implementation, migration validation, compatibility docs, and
 UI/API responses agree on one exact trace-fidelity contract with no overclaim.
+**Satisfied:** `timeless_traces` `5d38b65` adds the checked field inventory and
+explicitly documents unsupported links, tracestate, flags, remote-parent state,
+schema URLs, and dropped counts without synthesizing values.
 
 ## Session C5 — corrected release gate
 
