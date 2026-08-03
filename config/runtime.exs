@@ -29,6 +29,10 @@ if config_env() == :prod do
   metrics_port = System.get_env("TIMELESS_METRICS_PORT", "8428") |> String.to_integer()
   logs_port = System.get_env("TIMELESS_LOGS_PORT", "9428") |> String.to_integer()
   traces_port = System.get_env("TIMELESS_TRACES_PORT", "10428") |> String.to_integer()
+  # Standalone embedded deployments retain the loopback default.  Container
+  # images must opt into an externally reachable bind because the Rust owners
+  # run in the same network namespace as Phoenix but are published separately.
+  telemetry_bind = System.get_env("TIMELESS_TELEMETRY_BIND", "127.0.0.1")
 
   metrics_retention_raw =
     System.get_env("TIMELESS_METRICS_RETENTION_RAW", "7") |> String.to_integer()
@@ -92,7 +96,8 @@ if config_env() == :prod do
         binary: Path.join(bin_dir, "timeless-metrics-api"),
         extension: extension,
         data_dir: metrics_dir,
-        listen: "127.0.0.1:#{metrics_port}",
+        listen: "#{telemetry_bind}:#{metrics_port}",
+        allow_non_loopback: telemetry_bind != "127.0.0.1",
         startup_module: TimelessMetrics.ReleaseStartup,
         auth_mode: :required,
         auth_policy_path: Path.join(auth_dir, "metrics.json"),
@@ -103,7 +108,8 @@ if config_env() == :prod do
         binary: Path.join(bin_dir, "timeless-logs-api"),
         extension: extension,
         data_dir: logs_dir,
-        listen: "127.0.0.1:#{logs_port}",
+        listen: "#{telemetry_bind}:#{logs_port}",
+        allow_non_loopback: telemetry_bind != "127.0.0.1",
         startup_module: TimelessLogs.ReleaseStartup,
         startup_opts: [retention_seconds: logs_retention_age],
         auth_mode: :required,
@@ -115,7 +121,8 @@ if config_env() == :prod do
         binary: Path.join(bin_dir, "timeless-traces-api"),
         extension: extension,
         data_dir: traces_dir,
-        listen: "127.0.0.1:#{traces_port}",
+        listen: "#{telemetry_bind}:#{traces_port}",
+        allow_non_loopback: telemetry_bind != "127.0.0.1",
         startup_module: TimelessTraces.ReleaseStartup,
         startup_opts: [retention_seconds: traces_retention_age],
         auth_mode: :required,
