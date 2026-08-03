@@ -1,7 +1,7 @@
 # Rust/libSQL telemetry data-plane release handoff
 
 Date: 2026-08-02
-Release line: `0.3.0` native data plane / Stack `0.6.11`
+Release line: `0.3.0` native data plane / Stack `0.6.12`
 Promotion branch: `release/rust-telemetry-data-plane`
 
 ## Release verdict
