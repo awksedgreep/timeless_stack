@@ -7,9 +7,9 @@ Date: 2026-08-02
 - Stack: `326ad30`
 - UI promotion branch: `83db76e170add578a34881415083d2e099242423`
 - Canvas: `72636bfd812092667ce9c4c538b213e7db01a950`
-- metrics/libSQL promotion branch: `afde954`
+- metrics/libSQL promotion branch: `c4900e2`
 - traces promotion branch: `5d38b65`
-- native extension artifact: `afde9543f5e78fcb02375c96e1b741421c53237d`
+- native extension artifact: `c4900e203f811598238efde5e68c7358cbd033fe`
 
 ## Executed gates
 
@@ -27,7 +27,7 @@ Date: 2026-08-02
 - `cargo build --release --locked --workspace` and strict Clippy — passed.
 - `tools/package_release.py --target x86_64-unknown-linux-gnu` — produced and
   checksum-verified the archive
-  `f610b3f389b46fabf1b711337cd81f2fdd2bcdc588eef898df1f6744ce0b035f`.
+  `10731b2b20d607a626fa083561ff39ffa98c32ca5fb8ff0d37de95aed48c030f`.
   Temporary-prefix install and uninstall both passed without touching data.
 - `tools/production_gate.py --mode short` — passed 120 seconds with all three
   signal owners, 12 scheduled fault events, zero workload errors, and exact
