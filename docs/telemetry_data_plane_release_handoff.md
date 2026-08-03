@@ -6,10 +6,27 @@ Promotion branch: `release/rust-telemetry-data-plane`
 
 ## Release verdict
 
-Release with named limitations for metrics, logs, traces, and the combined
-Stack. Functional, migration, control-plane, clean-CI, packaging,
-install/removal, backup/restore, rollback, short fault, and exact-build
-160-minute sustained gates all pass. The sustained gate ran from
+Release verdict reopened. The previously recorded functional, migration,
+control-plane, clean-CI, packaging, install/removal, backup/restore, rollback,
+short-fault, and exact-build 160-minute sustained gates passed, but a later
+boundary audit found release blockers that those gates did not cover:
+
+- Rust-mode Prometheus scraping still parses exposition with an Elixir regex
+  and re-encodes samples instead of using the existing fused Rust/SQLite
+  parser.
+- A bespoke 8,192-entry BEAM logs transport buffer duplicates the shape of
+  the extension's authoritative storage batch.
+- The Stack lockfile does not contain the selected current TimelessUI and
+  TimelessCanvas revisions.
+- The trace-fidelity claim needs an exact supported-field audit so it cannot
+  be read as preservation of OTLP fields the storage model never retained.
+
+The sequential correction plan and exit criteria are checked in at
+[`2026-08-02_rust_data_plane_boundary_corrections.md`](2026-08-02_rust_data_plane_boundary_corrections.md).
+MinIO/S3 replication testing is not part of that plan; host-level SQLite/libSQL
+replication remains independently testable by operators and direct users.
+
+The prior sustained gate ran from
 `timeless-libsql` `bab775035785b78e0d9879b7d871bbd938e92991` for 9,602.37
 seconds, or 8.00197 aggregate signal-hours, and recorded all 12 fault events as
 passed with no workload errors.
@@ -133,5 +150,6 @@ remain diagnostic evidence, not a claim of zero growth.
 - Logical optimize is not physical vacuum. Production does not run a blocking
   full `VACUUM` against an active owner; page/freelist reuse and physical HWM
   remain separate measurements.
-- There are no remaining known implementation, correctness, durability,
-  migration, packaging, artifact, or operator-documentation blockers.
+- The release verdict remains open until every exit criterion in
+  `2026-08-02_rust_data_plane_boundary_corrections.md` passes and evidence is
+  regenerated from the exact corrected heads.
