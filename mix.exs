@@ -4,7 +4,7 @@ defmodule TimelessStack.MixProject do
   def project do
     [
       app: :timeless_stack,
-  version: "0.6.13",
+  version: "0.6.14",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
