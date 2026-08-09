@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+
+if [ "$#" -ne 2 ]; then
+  echo "usage: timeless-restore-backup BACKUP_DIR EMPTY_DATA_DIR" >&2
+  exit 2
+fi
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+release_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
+export TIMELESS_RESTORE_BACKUP=$1
+export TIMELESS_RESTORE_DATA=$2
+
+exec "$release_root/bin/timeless_stack" eval '
+case TimelessStack.Backup.restore(
+       System.fetch_env!("TIMELESS_RESTORE_BACKUP"),
+       System.fetch_env!("TIMELESS_RESTORE_DATA")
+     ) do
+  {:ok, report} -> IO.puts(inspect(report, pretty: true))
+  {:error, reason} -> IO.puts(:stderr, inspect(reason, pretty: true)); System.halt(1)
+end
+'

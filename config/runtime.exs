@@ -1,51 +1,43 @@
 import Config
 
-# Runtime config only applies in prod (container/release deployments).
-# Dev uses compile-time config in dev.exs with local paths.
-# Test uses test.exs with temp dirs.
 config :timeless_canvas,
   current_user_fn: fn socket_or_conn -> socket_or_conn.assigns.current_scope.user end
 
 if config_env() == :prod do
-  # Common root data directory
   data_dir = System.get_env("TIMELESS_DATA_DIR", "/data")
 
-  # Shared bearer token for all services
-  bearer_token = System.get_env("TIMELESS_BEARER_TOKEN")
+  data_plane_mode =
+    case System.get_env("TIMELESS_DATA_PLANE", "rust") do
+      "rust" ->
+        :rust
 
-  # Storage mode for logs and traces (disk or memory)
-  storage =
-    case System.get_env("TIMELESS_STORAGE", "disk") do
-      "memory" -> :memory
-      _ -> :disk
+      "legacy" ->
+        if System.get_env("TIMELESS_LEGACY_ROLLBACK_ACK") == "retain-legacy-until-0.9.0" do
+          :legacy
+        else
+          raise """
+          TIMELESS_DATA_PLANE=legacy is an offline, time-limited rollback path.
+          Stop the release and set TIMELESS_LEGACY_ROLLBACK_ACK=retain-legacy-until-0.9.0.
+          This selector is removed in 0.9.0.
+          """
+        end
+
+      value ->
+        raise "invalid TIMELESS_DATA_PLANE=#{inspect(value)}; expected rust or legacy"
     end
 
-  # --- Metrics ---
-  metrics_port =
-    System.get_env("TIMELESS_METRICS_PORT", "8428") |> String.to_integer()
+  metrics_port = System.get_env("TIMELESS_METRICS_PORT", "8428") |> String.to_integer()
+  logs_port = System.get_env("TIMELESS_LOGS_PORT", "9428") |> String.to_integer()
+  traces_port = System.get_env("TIMELESS_TRACES_PORT", "10428") |> String.to_integer()
+  # Standalone embedded deployments retain the loopback default.  Container
+  # images must opt into an externally reachable bind because the Rust owners
+  # run in the same network namespace as Phoenix but are published separately.
+  telemetry_bind = System.get_env("TIMELESS_TELEMETRY_BIND", "127.0.0.1")
+  telemetry_bind_env =
+    if telemetry_bind == "127.0.0.1", do: %{}, else: %{"TIMELESS_ALLOW_NON_LOOPBACK" => "1"}
 
   metrics_retention_raw =
     System.get_env("TIMELESS_METRICS_RETENTION_RAW", "7") |> String.to_integer()
-
-  defer_compression = System.get_env("TIMELESS_DEFER_COMPRESSION", "true") == "true"
-
-  metrics_config = [
-    data_dir: Path.join(data_dir, "metrics"),
-    port: metrics_port,
-    retention_raw_days: metrics_retention_raw,
-    defer_compression: defer_compression
-  ]
-
-  metrics_config =
-    if bearer_token,
-      do: Keyword.put(metrics_config, :bearer_token, bearer_token),
-      else: metrics_config
-
-  config :timeless_metrics, metrics_config
-
-  # --- Logs ---
-  logs_port =
-    System.get_env("TIMELESS_LOGS_PORT", "9428") |> String.to_integer()
 
   logs_retention_age =
     System.get_env("TIMELESS_LOGS_RETENTION_AGE", "604800") |> String.to_integer()
@@ -53,53 +45,184 @@ if config_env() == :prod do
   logs_retention_size =
     System.get_env("TIMELESS_LOGS_RETENTION_SIZE", "536870912") |> String.to_integer()
 
-  logs_http =
-    if bearer_token,
-      do: [port: logs_port, bearer_token: bearer_token],
-      else: [port: logs_port]
-
-  config :timeless_logs,
-    storage: storage,
-    data_dir: Path.join(data_dir, "logs"),
-    http: logs_http,
-    retention_max_age: logs_retention_age,
-    retention_max_size: logs_retention_size
-
-  # --- Traces ---
-  traces_port =
-    System.get_env("TIMELESS_TRACES_PORT", "10428") |> String.to_integer()
-
   traces_retention_age =
     System.get_env("TIMELESS_TRACES_RETENTION_AGE", "604800") |> String.to_integer()
 
   traces_retention_size =
     System.get_env("TIMELESS_TRACES_RETENTION_SIZE", "536870912") |> String.to_integer()
 
-  traces_http =
-    if bearer_token,
-      do: [port: traces_port, bearer_token: bearer_token],
-      else: [port: traces_port]
+  metrics_dir = Path.join(data_dir, "metrics")
+  logs_dir = Path.join(data_dir, "logs")
+  traces_dir = Path.join(data_dir, "traces")
 
-  config :timeless_traces,
-    storage: storage,
-    data_dir: Path.join(data_dir, "traces"),
-    http: traces_http,
-    retention_max_age: traces_retention_age,
-    retention_max_size: traces_retention_size
+  config :timeless_stack, data_plane_mode: data_plane_mode
 
-  # --- OpenTelemetry ---
+  if data_plane_mode == :rust do
+    release_root = System.get_env("RELEASE_ROOT", "/opt/timeless")
+    bin_dir = System.get_env("TIMELESS_TELEMETRY_BIN_DIR", Path.join(release_root, "bin"))
+
+    extension =
+      System.get_env(
+        "TIMELESS_LIBSQL_EXTENSION",
+        Path.join([release_root, "lib", "libtimeless_ext.so"])
+      )
+
+    auth_dir = Path.join([data_dir, "control", "auth"])
+    tenant = System.get_env("TIMELESS_TENANT", "default")
+
+    config :timeless_metrics,
+      owner: :external,
+      engine: :libsql,
+      data_dir: metrics_dir,
+      raw_retention_seconds: metrics_retention_raw * 86_400
+
+    config :timeless_logs,
+      owner: :external,
+      storage: :disk,
+      data_dir: logs_dir,
+      http: false,
+      retention_max_age: logs_retention_age,
+      retention_max_size: logs_retention_size
+
+    config :timeless_traces,
+      owner: :external,
+      storage: :disk,
+      data_dir: traces_dir,
+      http: false,
+      retention_max_age: traces_retention_age,
+      retention_max_size: traces_retention_size
+
+    config :timeless_ui, :telemetry_data_planes, [
+      [
+        signal: :metrics,
+        binary: Path.join(bin_dir, "timeless-metrics-api"),
+        extension: extension,
+        data_dir: metrics_dir,
+        listen: "#{telemetry_bind}:#{metrics_port}",
+        allow_non_loopback: telemetry_bind != "127.0.0.1",
+        startup_module: TimelessMetrics.ReleaseStartup,
+        auth_mode: :required,
+        auth_policy_path: Path.join(auth_dir, "metrics.json"),
+        tenant: tenant,
+        env: telemetry_bind_env
+      ],
+      [
+        signal: :logs,
+        binary: Path.join(bin_dir, "timeless-logs-api"),
+        extension: extension,
+        data_dir: logs_dir,
+        listen: "#{telemetry_bind}:#{logs_port}",
+        allow_non_loopback: telemetry_bind != "127.0.0.1",
+        startup_module: TimelessLogs.ReleaseStartup,
+        startup_opts: [retention_seconds: logs_retention_age],
+        auth_mode: :required,
+        auth_policy_path: Path.join(auth_dir, "logs.json"),
+        tenant: tenant,
+        env: telemetry_bind_env
+      ],
+      [
+        signal: :traces,
+        binary: Path.join(bin_dir, "timeless-traces-api"),
+        extension: extension,
+        data_dir: traces_dir,
+        listen: "#{telemetry_bind}:#{traces_port}",
+        allow_non_loopback: telemetry_bind != "127.0.0.1",
+        startup_module: TimelessTraces.ReleaseStartup,
+        startup_opts: [retention_seconds: traces_retention_age],
+        auth_mode: :required,
+        auth_policy_path: Path.join(auth_dir, "traces.json"),
+        tenant: tenant,
+        env:
+          Map.put(
+            telemetry_bind_env,
+            "TIMELESS_TRACES_RETENTION_SECS",
+            Integer.to_string(traces_retention_age)
+          )
+      ]
+    ]
+
+    config :timeless_ui, :logs_data_plane_buffer, enabled: true
+    config :timeless_ui, :metrics_scraper_mode, :rust
+
+    config :timeless_ui, :poller, metrics_writer: TimelessUI.MetricsDataPlane.Writer
+
+    config :timeless_stack,
+      timeless_metrics_module: TimelessStack.MetricsDataPlane,
+      timeless_logs_module: TimelessStack.LogsDataPlane
+
+    config :timeless_stack, TimelessStack.UIDataSource.Cache,
+      metrics_module: TimelessStack.MetricsDataPlane
+
+    config :opentelemetry,
+      traces_exporter: {TimelessStack.TracesExporter, []}
+  else
+    storage =
+      case System.get_env("TIMELESS_STORAGE", "disk") do
+        "memory" -> :memory
+        "disk" -> :disk
+        value -> raise "invalid TIMELESS_STORAGE=#{inspect(value)}; expected disk or memory"
+      end
+
+    bearer_token = System.get_env("TIMELESS_BEARER_TOKEN")
+    metrics_config = [owner: :embedded, engine: :rust, data_dir: metrics_dir, port: metrics_port]
+
+    metrics_config =
+      if bearer_token,
+        do: Keyword.put(metrics_config, :bearer_token, bearer_token),
+        else: metrics_config
+
+    config :timeless_metrics, metrics_config
+
+    legacy_http = fn port ->
+      if bearer_token, do: [port: port, bearer_token: bearer_token], else: [port: port]
+    end
+
+    config :timeless_logs,
+      owner: :embedded,
+      storage: storage,
+      data_dir: logs_dir,
+      http: legacy_http.(logs_port),
+      retention_max_age: logs_retention_age,
+      retention_max_size: logs_retention_size
+
+    config :timeless_traces,
+      owner: :embedded,
+      storage: storage,
+      data_dir: traces_dir,
+      http: legacy_http.(traces_port),
+      retention_max_age: traces_retention_age,
+      retention_max_size: traces_retention_size
+
+    config :timeless_ui, :telemetry_data_planes, []
+    config :timeless_ui, :logs_data_plane_buffer, enabled: false
+    config :timeless_ui, :metrics_scraper_mode, :embedded
+    config :timeless_ui, :poller, metrics_writer: TimelessUI.Poller.MetricsWriter
+
+    config :timeless_stack,
+      timeless_metrics_module: TimelessMetrics,
+      timeless_logs_module: TimelessLogs
+
+    config :timeless_stack, TimelessStack.UIDataSource.Cache, metrics_module: TimelessMetrics
+    config :opentelemetry, traces_exporter: {TimelessTraces.Exporter, []}
+
+    config :timeless_canvas, :data_source,
+      module: TimelessStack.UIDataSource,
+      config: %{metrics_store: :timeless_metrics, metrics_module: TimelessMetrics},
+      poll_interval: 5_000
+
+    config :timeless_canvas, :stream_backends,
+      log: TimelessLogs,
+      trace: TimelessTraces
+  end
+
   config :opentelemetry, :resource,
     service: [name: "timeless-stack"],
     deployment: [environment: "prod"]
 
-  # --- Poller ---
   poller_enabled = System.get_env("TIMELESS_POLLER_ENABLED", "true") == "true"
   config :timeless_ui, :poller, enabled: poller_enabled
 
-  # --- UI (Phoenix) ---
-  ui_port =
-    System.get_env("TIMELESS_UI_PORT", "4000") |> String.to_integer()
-
+  ui_port = System.get_env("TIMELESS_UI_PORT", "4000") |> String.to_integer()
   ui_host = System.get_env("PHX_HOST", "localhost")
 
   secret_key_base =
@@ -114,7 +237,6 @@ if config_env() == :prod do
 
   config :timeless_ui, TimelessUI.Repo, database: Path.join(data_dir, "timeless_ui.db")
 
-  # Email: use Resend if API key provided, otherwise log to stdout
   resend_key = System.get_env("RESEND_API_KEY")
 
   if resend_key do
@@ -123,7 +245,6 @@ if config_env() == :prod do
       api_key: resend_key
 
     config :timeless_ui, :mailer_from, System.get_env("MAILER_FROM", "noreply@stg.diablodata.com")
-
     config :swoosh, :api_client, Swoosh.ApiClient.Finch
   else
     config :timeless_ui, TimelessUI.Mailer, adapter: Swoosh.Adapters.Logger

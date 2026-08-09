@@ -18,9 +18,17 @@ defmodule TimelessStack.UIDataSource do
   @impl true
   def init(config) do
     store = Map.get(config, :metrics_store, :timeless_metrics)
+    metrics_module = Map.get(config, :metrics_module, configured_metrics_module())
     cache_name = Map.get(config, :cache_name, Cache)
     cache_table = Map.get(config, :cache_table, Cache.default_table())
-    {:ok, %{store: store, cache_name: cache_name, cache_table: cache_table}}
+
+    {:ok,
+     %{
+       store: store,
+       metrics_module: metrics_module,
+       cache_name: cache_name,
+       cache_table: cache_table
+     }}
   end
 
   @impl true
@@ -39,7 +47,7 @@ defmodule TimelessStack.UIDataSource do
   def metric(state, element, metric_name) do
     labels = build_labels(element)
 
-    case TimelessMetrics.query_multi(state.store, metric_name, labels,
+    case state.metrics_module.query_multi(state.store, metric_name, labels,
            from: DateTime.to_unix(DateTime.add(DateTime.utc_now(), -300, :second)),
            to: DateTime.to_unix(DateTime.utc_now())
          ) do
@@ -67,7 +75,7 @@ defmodule TimelessStack.UIDataSource do
     from = DateTime.to_unix(DateTime.add(time, -5, :second))
     to = DateTime.to_unix(time)
 
-    case TimelessMetrics.query_multi(state.store, metric_name, labels, from: from, to: to) do
+    case state.metrics_module.query_multi(state.store, metric_name, labels, from: from, to: to) do
       {:ok, [%{points: [_ | _] = points} | _]} ->
         {_ts, value} = List.last(points)
         {:ok, value}
@@ -106,7 +114,7 @@ defmodule TimelessStack.UIDataSource do
 
   @impl true
   def time_range(state) do
-    info = TimelessMetrics.info(state.store)
+    info = state.metrics_module.info(state.store)
 
     case {info[:oldest_timestamp], info[:newest_timestamp]} do
       {nil, _} ->
@@ -158,7 +166,7 @@ defmodule TimelessStack.UIDataSource do
 
   @impl true
   def metric_metadata(state, metric_name) do
-    TimelessMetrics.get_metadata(state.store, metric_name)
+    state.metrics_module.get_metadata(state.store, metric_name)
   end
 
   @impl true
@@ -281,7 +289,7 @@ defmodule TimelessStack.UIDataSource do
   end
 
   defp gauge_metric_range(state, metric_name, labels, from_ts, to_ts, bucket_seconds) do
-    case TimelessMetrics.query_aggregate_multi(state.store, metric_name, labels,
+    case state.metrics_module.query_aggregate_multi(state.store, metric_name, labels,
            from: from_ts,
            to: to_ts,
            bucket: {bucket_seconds, :seconds},
@@ -296,7 +304,7 @@ defmodule TimelessStack.UIDataSource do
   end
 
   defp counter_metric_range(state, metric_name, labels, from_ts, to_ts, bucket_seconds) do
-    case TimelessMetrics.query_aggregate_multi(state.store, metric_name, labels,
+    case state.metrics_module.query_aggregate_multi(state.store, metric_name, labels,
            from: from_ts,
            to: to_ts,
            bucket: {bucket_seconds, :seconds},
@@ -343,7 +351,7 @@ defmodule TimelessStack.UIDataSource do
   end
 
   defp counter_metric_from_metadata?(state, metric_name) do
-    case TimelessMetrics.get_metadata(state.store, metric_name) do
+    case state.metrics_module.get_metadata(state.store, metric_name) do
       {:ok, %{type: type}} when type in ["counter32", "counter64", :counter32, :counter64] ->
         true
 
@@ -379,5 +387,9 @@ defmodule TimelessStack.UIDataSource do
           _ -> :ok
         end
     end
+  end
+
+  defp configured_metrics_module do
+    Application.get_env(:timeless_stack, :timeless_metrics_module, TimelessMetrics)
   end
 end
