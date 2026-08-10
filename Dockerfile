@@ -15,9 +15,15 @@ ENV MIX_ENV=prod
 
 ARG TIMELESS_BUILD_COMMIT
 
+# The release tag the data plane was built from, recorded as a label so the
+# image reports it directly. The commit alone is unreadable — the SHA this
+# build previously froze on gave no hint it was three minor versions behind.
+ARG TIMELESS_BUILD_RELEASE
+LABEL org.opencontainers.image.base.name="timeless-libsql:${TIMELESS_BUILD_RELEASE}"
+
 # Build the released storage extension and the three signal-specific data
-# planes from the separately pinned timeless-libsql checkout. The container
-# never reconstructs these binaries from POC sources.
+# planes from the timeless-libsql release resolved at build time. The
+# container never reconstructs these binaries from POC sources.
 WORKDIR /build/timeless-libsql
 COPY timeless-libsql/Cargo.toml timeless-libsql/Cargo.lock ./
 COPY timeless-libsql/crates crates

@@ -22,9 +22,33 @@ jobs:
         with:
           path: timeless_stack
 
-      - name: Read pinned telemetry data-plane revision
+      # Resolved at build time rather than pinned. telemetry-data-plane.lock
+      # used to hold a bare commit SHA — a72634e, which `git describe` calls
+      # v0.3.0-49-ga72634e: an untagged mid-stream commit written to unblock
+      # container networking on 2026-08-03. It never moved again, so every
+      # image for five weeks shipped a data plane 49 commits past v0.3.0 while
+      # the extension reached v0.6.0, and nothing ever said so. A pin cannot
+      # report its own staleness, so it rots in silence while each release
+      # looks green.
+      #
+      # Releases are still deliberate: only tagged versions of timeless-libsql
+      # are eligible, so an in-flight commit can never reach an image. What is
+      # gone is the freeze. The exact commit is recorded below and baked into
+      # the image, so a build stays identifiable after the fact without a
+      # checked-in pin having to be remembered and advanced by hand.
+      - name: Resolve newest telemetry data-plane release
         id: telemetry
-        run: echo "ref=$(tr -d '\n' < timeless_stack/telemetry-data-plane.lock)" >> "$GITHUB_OUTPUT"
+        run: |
+          ref="$(git ls-remote --tags --refs --sort=-v:refname \
+                   https://github.com/awksedgreep/timeless-libsql 'v*' \
+                 | head -1 | sed 's#.*refs/tags/##')"
+          if [ -z "$ref" ]; then
+            echo "::error::no release tag found on timeless-libsql; refusing to" \
+                 "build against an unreleased data plane."
+            exit 1
+          fi
+          echo "building against timeless-libsql $ref"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
 
       - name: Checkout timeless-libsql
         uses: actions/checkout@v4
@@ -35,7 +59,9 @@ jobs:
 
       - name: Resolve telemetry build identity
         id: telemetry-identity
-        run: echo "commit=$(git -C timeless-libsql rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "commit=$(git -C timeless-libsql rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "release=${{ steps.telemetry.outputs.ref }}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -71,3 +97,4 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             TIMELESS_BUILD_COMMIT=${{ steps.telemetry-identity.outputs.commit }}
+            TIMELESS_BUILD_RELEASE=${{ steps.telemetry-identity.outputs.release }}
