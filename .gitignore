@@ -27,3 +27,13 @@ timeless_stack-*.tar
 
 # Deploy secrets
 deploy/env
+
+# Iconify generates these component modules on demand; they have never been
+# tracked and timeless_canvas handles an un-generated icon gracefully.
+/lib/timeless_stack/iconify/
+
+# Digested assets, produced by the assets.deploy alias at build time.
+/priv/static/
+
+# Test scratch stores (the /tmp/ rule above does not cover this path).
+/test/tmp/
