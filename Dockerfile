@@ -18,8 +18,8 @@ RUN test -n "${TIMELESS_BUILD_RELEASE}" && \
     esac && \
     base="https://github.com/awksedgreep/timeless-libsql/releases/download/${TIMELESS_BUILD_RELEASE}" && \
     name="timeless-telemetry-data-plane-${TIMELESS_BUILD_RELEASE#v}-${triple}" && \
-    curl -fsSLO "${base}/${name}.tar.gz" && \
-    curl -fsSLO "${base}/SHA256SUMS" && \
+    curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -O "${base}/${name}.tar.gz" && \
+    curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -O "${base}/SHA256SUMS" && \
     grep "  ${name}.tar.gz\$" SHA256SUMS | sha256sum -c - && \
     tar -xzf "${name}.tar.gz" && \
     mv "${name}" bundle

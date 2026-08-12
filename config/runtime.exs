@@ -33,6 +33,19 @@ if config_env() == :prod do
   # images must opt into an externally reachable bind because the Rust owners
   # run in the same network namespace as Phoenix but are published separately.
   telemetry_bind = System.get_env("TIMELESS_TELEMETRY_BIND", "127.0.0.1")
+
+  # Data-plane authentication. The stack historically hardcoded :required —
+  # correct when Phoenix's own clients are the only producers, but a wall in
+  # front of external producers (ddnet's log shipper hit 401s on a host
+  # whose exposure is already decided at the container boundary). The
+  # underlying servers are open by default since timeless-libsql 0.7; this
+  # makes the stack's opt-in explicit and overridable per deployment.
+  data_plane_auth =
+    case System.get_env("TIMELESS_DATA_PLANE_AUTH", "required") do
+      "required" -> :required
+      "disabled" -> :disabled
+      other -> raise "TIMELESS_DATA_PLANE_AUTH must be required or disabled, got #{inspect(other)}"
+    end
   telemetry_bind_env =
     if telemetry_bind == "127.0.0.1", do: %{}, else: %{"TIMELESS_ALLOW_NON_LOOPBACK" => "1"}
 
@@ -101,7 +114,7 @@ if config_env() == :prod do
         listen: "#{telemetry_bind}:#{metrics_port}",
         allow_non_loopback: telemetry_bind != "127.0.0.1",
         startup_module: TimelessMetrics.ReleaseStartup,
-        auth_mode: :required,
+        auth_mode: data_plane_auth,
         auth_policy_path: Path.join(auth_dir, "metrics.json"),
         tenant: tenant,
         env: telemetry_bind_env
@@ -115,7 +128,7 @@ if config_env() == :prod do
         allow_non_loopback: telemetry_bind != "127.0.0.1",
         startup_module: TimelessLogs.ReleaseStartup,
         startup_opts: [retention_seconds: logs_retention_age],
-        auth_mode: :required,
+        auth_mode: data_plane_auth,
         auth_policy_path: Path.join(auth_dir, "logs.json"),
         tenant: tenant,
         env: telemetry_bind_env
@@ -129,7 +142,7 @@ if config_env() == :prod do
         allow_non_loopback: telemetry_bind != "127.0.0.1",
         startup_module: TimelessTraces.ReleaseStartup,
         startup_opts: [retention_seconds: traces_retention_age],
-        auth_mode: :required,
+        auth_mode: data_plane_auth,
         auth_policy_path: Path.join(auth_dir, "traces.json"),
         tenant: tenant,
         env:
