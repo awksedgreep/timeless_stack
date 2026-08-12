@@ -66,9 +66,10 @@ curl -f http://127.0.0.1:10428/live
 curl -f http://127.0.0.1:4000/
 ```
 
-`/live` is deliberately unauthenticated and only proves that the local owner
-is serving. `/ready`, `/health`, signal stats, ingestion, and query routes
-require a Phoenix-issued credential. The authenticated Phoenix telemetry
+`/live`, `/ready`, and `/health` are deliberately unauthenticated probe
+endpoints (exact-match exemptions). Signal stats, ingestion, and query routes
+require a Phoenix-issued credential in this deployment, which enables auth
+explicitly. The authenticated Phoenix telemetry
 administration endpoint is the authoritative combined state; it reports
 migration phase/progress, source identity, target path, and process readiness.
 Do not send production traffic until all three signals are ready.

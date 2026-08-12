@@ -38,7 +38,8 @@ runs three separate Rust HTTP owners backed by the public `timeless-libsql`
 extension. Phoenix remains the control plane. It owns users, sessions, token
 issuance, authorization policy, tenancy, configuration, cluster
 administration, Canvas/dashboard state, and process supervision; it never
-opens a telemetry database.
+opens a telemetry database. The servers themselves no longer require it —
+they start open and this stack opts into auth explicitly.
 
 Fresh installations create libSQL virtual tables. Existing installations are
 detected before readiness as fresh, valid libSQL, legacy Rust storage,

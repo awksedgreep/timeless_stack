@@ -13,7 +13,8 @@ Rocket, an embedded Elixir owner, or another database connection.
 
 - Phoenix remains the control plane for users, sessions, token issuance,
   authorization policy, tenancy, configuration, cluster administration, and
-  UI state.
+  UI state — for this topology; the servers no longer require a control
+  plane to run.
 - `timeless-metrics-api`, `timeless-logs-api`, and `timeless-traces-api` each
   own exactly one signal database. They listen on loopback by default and
   require Phoenix-issued credentials and policy files.
@@ -136,7 +137,12 @@ minimum-version negotiation, build identity, and storage health. Phoenix
 exposes the combined state under its authenticated telemetry administration
 API.
 
-Authorization is required by default. The shipped policy defaults are:
+The servers themselves start open — authentication is opt-in as of
+timeless-libsql's 0.6 line — and this stack opts in explicitly via
+`auth_mode: :required`, so every deployment of this control plane runs with
+authorization enforced. The Phoenix topology is one deployment option among
+several (SQLite-direct, embedded Rust, standalone binaries); it does not set
+the servers' defaults. The shipped policy defaults are:
 
 | limit | default maximum |
 |---|---:|
