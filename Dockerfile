@@ -1,3 +1,29 @@
+# Stage 0: Fetch the released data plane. These binaries were built,
+# identity-checked, and install/remove-drilled by the timeless-libsql
+# release pipeline (docs/ARTIFACTS.md there); rebuilding them from source
+# here cost ~100 minutes per image and shipped bytes no release job had
+# verified. The checksum file is part of the same release.
+FROM docker.io/debian:trixie-slim AS dataplane
+RUN apt-get update && \
+    apt-get install -y curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+ARG TIMELESS_BUILD_RELEASE
+ARG TARGETARCH
+WORKDIR /dataplane
+RUN test -n "${TIMELESS_BUILD_RELEASE}" && \
+    case "${TARGETARCH}" in \
+      amd64) triple="x86_64-unknown-linux-gnu" ;; \
+      arm64) triple="aarch64-unknown-linux-gnu" ;; \
+      *) echo "unsupported TARGETARCH ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    base="https://github.com/awksedgreep/timeless-libsql/releases/download/${TIMELESS_BUILD_RELEASE}" && \
+    name="timeless-telemetry-data-plane-${TIMELESS_BUILD_RELEASE#v}-${triple}" && \
+    curl -fsSLO "${base}/${name}.tar.gz" && \
+    curl -fsSLO "${base}/SHA256SUMS" && \
+    grep "  ${name}.tar.gz\$" SHA256SUMS | sha256sum -c - && \
+    tar -xzf "${name}.tar.gz" && \
+    mv "${name}" bundle
+
 # Stage 1: Build
 FROM docker.io/hexpm/elixir:1.18.3-erlang-27.3.4-debian-bookworm-20250428 AS builder
 
@@ -15,24 +41,11 @@ ENV MIX_ENV=prod
 
 ARG TIMELESS_BUILD_COMMIT
 
-# The release tag the data plane was built from, recorded as a label so the
+# The release tag the data plane comes from, recorded as a label so the
 # image reports it directly. The commit alone is unreadable — the SHA this
 # build previously froze on gave no hint it was three minor versions behind.
 ARG TIMELESS_BUILD_RELEASE
 LABEL org.opencontainers.image.base.name="timeless-libsql:${TIMELESS_BUILD_RELEASE}"
-
-# Build the released storage extension and the three signal-specific data
-# planes from the timeless-libsql release resolved at build time. The
-# container never reconstructs these binaries from POC sources.
-WORKDIR /build/timeless-libsql
-COPY timeless-libsql/Cargo.toml timeless-libsql/Cargo.lock ./
-COPY timeless-libsql/crates crates
-COPY timeless-libsql/servers/Cargo.toml timeless-libsql/servers/Cargo.lock servers/
-COPY timeless-libsql/servers/crates servers/crates
-RUN test -n "${TIMELESS_BUILD_COMMIT}" && \
-    TIMELESS_BUILD_COMMIT="${TIMELESS_BUILD_COMMIT}" cargo build --locked --release -p timeless-ext && \
-    TIMELESS_BUILD_COMMIT="${TIMELESS_BUILD_COMMIT}" cargo build \
-      --manifest-path servers/Cargo.toml --locked --release --workspace
 
 WORKDIR /build/timeless_stack
 COPY timeless_stack/mix.exs timeless_stack/mix.lock ./
@@ -76,11 +89,11 @@ ENV TIMELESS_TELEMETRY_BIND=0.0.0.0
 WORKDIR /app
 
 COPY --from=builder /build/timeless_stack/_build/prod/rel/timeless_stack ./
-COPY --from=builder /build/timeless-libsql/servers/target/release/timeless-metrics-api /app/bin/
-COPY --from=builder /build/timeless-libsql/servers/target/release/timeless-logs-api /app/bin/
-COPY --from=builder /build/timeless-libsql/servers/target/release/timeless-traces-api /app/bin/
-COPY --from=builder /build/timeless-libsql/servers/target/release/timeless-authctl /app/bin/
-COPY --from=builder /build/timeless-libsql/target/release/libtimeless_ext.so /app/lib/
+COPY --from=dataplane /dataplane/bundle/bin/timeless-metrics-api /app/bin/
+COPY --from=dataplane /dataplane/bundle/bin/timeless-logs-api /app/bin/
+COPY --from=dataplane /dataplane/bundle/bin/timeless-traces-api /app/bin/
+COPY --from=dataplane /dataplane/bundle/bin/timeless-authctl /app/bin/
+COPY --from=dataplane /dataplane/bundle/lib/libtimeless_ext.so /app/lib/
 
 VOLUME /data
 

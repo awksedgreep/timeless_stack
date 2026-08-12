@@ -89,10 +89,13 @@ config :timeless_traces, storage: :disk, data_dir: "/data/traces", http: [port: 
 
 ## Building the Container Locally
 
-From the parent directory containing all three repos:
+From the parent directory containing this repo (the data plane is
+downloaded from the named timeless-libsql release, not built from source —
+the tag must have published artifacts):
 
 ```bash
-docker build -t timeless-stack -f timeless_stack/Dockerfile .
+docker build -t timeless-stack -f timeless_stack/Dockerfile \
+  --build-arg TIMELESS_BUILD_RELEASE=v0.7.1 .
 ```
 
 ## Architecture

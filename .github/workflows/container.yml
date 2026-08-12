@@ -36,32 +36,28 @@ jobs:
       # gone is the freeze. The exact commit is recorded below and baked into
       # the image, so a build stays identifiable after the fact without a
       # checked-in pin having to be remembered and advanced by hand.
+      # The image consumes the release ARCHIVES, not a source build: those
+      # binaries were identity-checked and install/remove-drilled by the
+      # data-plane release pipeline, and rebuilding them here cost ~100
+      # minutes per image. Only tagged releases with published artifacts are
+      # eligible — a source-only tag (v0.4.0, v0.6.3, v0.7.0) fails this
+      # image build loudly at download time, which is the correct outcome.
       - name: Resolve newest telemetry data-plane release
-        id: telemetry
+        id: telemetry-identity
         run: |
-          ref="$(git ls-remote --tags --refs --sort=-v:refname \
+          line="$(git ls-remote --tags --refs --sort=-v:refname \
                    https://github.com/awksedgreep/timeless-libsql 'v*' \
-                 | head -1 | sed 's#.*refs/tags/##')"
+                 | head -1)"
+          ref="${line##*refs/tags/}"
+          commit="${line%%$'\t'*}"
           if [ -z "$ref" ]; then
             echo "::error::no release tag found on timeless-libsql; refusing to" \
                  "build against an unreleased data plane."
             exit 1
           fi
-          echo "building against timeless-libsql $ref"
-          echo "ref=$ref" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout timeless-libsql
-        uses: actions/checkout@v4
-        with:
-          repository: awksedgreep/timeless-libsql
-          ref: ${{ steps.telemetry.outputs.ref }}
-          path: timeless-libsql
-
-      - name: Resolve telemetry build identity
-        id: telemetry-identity
-        run: |
-          echo "commit=$(git -C timeless-libsql rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "release=${{ steps.telemetry.outputs.ref }}" >> "$GITHUB_OUTPUT"
+          echo "building against timeless-libsql $ref ($commit)"
+          echo "release=$ref" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
