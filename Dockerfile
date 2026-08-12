@@ -79,6 +79,7 @@ COPY --from=builder /build/timeless_stack/_build/prod/rel/timeless_stack ./
 COPY --from=builder /build/timeless-libsql/servers/target/release/timeless-metrics-api /app/bin/
 COPY --from=builder /build/timeless-libsql/servers/target/release/timeless-logs-api /app/bin/
 COPY --from=builder /build/timeless-libsql/servers/target/release/timeless-traces-api /app/bin/
+COPY --from=builder /build/timeless-libsql/servers/target/release/timeless-authctl /app/bin/
 COPY --from=builder /build/timeless-libsql/target/release/libtimeless_ext.so /app/lib/
 
 VOLUME /data
