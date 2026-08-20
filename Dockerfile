@@ -75,8 +75,12 @@ RUN mix release
 # Stage 2: Runtime (trixie for GLIBC >= 2.38 needed by ex_openzl NIF)
 FROM docker.io/debian:trixie-slim
 
+# netbase supplies /etc/protocols and /etc/services, which trixie-slim omits.
+# Erlang resolves protocol atoms such as :icmp through that database, so without
+# it the ICMP poller fails with {:invalid, {:protocol, :icmp}} — an error that
+# reads like a bad address or a missing capability and is neither.
 RUN apt-get update && \
-    apt-get install -y libstdc++6 openssl libncurses6 locales curl procps && \
+    apt-get install -y libstdc++6 openssl libncurses6 locales curl procps netbase && \
     rm -rf /var/lib/apt/lists/* && \
     sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
 
