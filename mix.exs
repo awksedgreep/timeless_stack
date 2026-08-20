@@ -50,8 +50,8 @@ defmodule TimelessStack.MixProject do
       {:timeless_logs, "~> 1.9", override: true},
       {:timeless_traces, "~> 1.9", override: true},
       {:ex_openzl, "~> 0.4", override: true},
-      {:timeless_canvas, github: "awksedgreep/timeless_canvas", tag: "v0.5.0", override: true},
-      {:timeless_ui, github: "awksedgreep/timeless_ui", tag: "v0.9.14", override: true},
+      {:timeless_canvas, github: "awksedgreep/timeless_canvas", tag: "v0.5.1", override: true},
+      {:timeless_ui, github: "awksedgreep/timeless_ui", tag: "v0.9.15", override: true},
       # Git tag rather than hex: v0.7.21 (remote live tail) ships in this
       # image ahead of its hex publish, which needs the operator's key.
       {:timeless_logs_dashboard,

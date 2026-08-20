@@ -238,13 +238,42 @@ if config_env() == :prod do
   ui_port = System.get_env("TIMELESS_UI_PORT", "4000") |> String.to_integer()
   ui_host = System.get_env("PHX_HOST", "localhost")
 
+  # Which interface the UI listens on. Defaults to all interfaces, preserving
+  # existing behaviour. Set to 127.0.0.1 when a reverse proxy terminates TLS in
+  # front of it: with host networking there is no port mapping to contain the
+  # listener, so the bind address is the only thing keeping the login page off a
+  # public IP.
+  ui_bind_raw = System.get_env("TIMELESS_UI_BIND", "0.0.0.0")
+
+  ui_bind =
+    case :inet.parse_address(String.to_charlist(ui_bind_raw)) do
+      {:ok, address} ->
+        address
+
+      {:error, _} ->
+        raise "TIMELESS_UI_BIND must be an IP address, got #{inspect(ui_bind_raw)}"
+    end
+
+  # Fail closed. This previously fell back to a literal committed to a public
+  # repository, which anyone could read and use to forge a signed session cookie
+  # — walking straight past authentication. A secret that defaults to a working
+  # value ships that value to every deployment that forgets to set it.
   secret_key_base =
     System.get_env("SECRET_KEY_BASE") ||
-      "6HpOY7CC/N+rgF+zzOAbGncebnKFnh41LuJzOdNVfa4pK3LApArebfIxP1aB6EBH"
+      raise """
+      SECRET_KEY_BASE is not set.
+
+      Generate one and pass it through the environment:
+
+          openssl rand -base64 64
+
+      It signs session cookies and other tokens, so it must be secret and stable
+      across restarts. Changing it invalidates existing sessions.
+      """
 
   config :timeless_ui, TimelessUIWeb.Endpoint,
     url: [host: ui_host, port: ui_port],
-    http: [ip: {0, 0, 0, 0}, port: ui_port],
+    http: [ip: ui_bind, port: ui_port],
     server: true,
     secret_key_base: secret_key_base
 
