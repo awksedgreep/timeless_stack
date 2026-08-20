@@ -258,18 +258,26 @@ if config_env() == :prod do
   # repository, which anyone could read and use to forge a signed session cookie
   # — walking straight past authentication. A secret that defaults to a working
   # value ships that value to every deployment that forgets to set it.
+  # Note the blank check: System.get_env/1 returns "" for a var that is set but
+  # empty, and "" is truthy in Elixir, so `get_env(...) || raise` alone would
+  # accept `SECRET_KEY_BASE=` and sign cookies with an empty key.
   secret_key_base =
-    System.get_env("SECRET_KEY_BASE") ||
-      raise """
-      SECRET_KEY_BASE is not set.
+    case System.get_env("SECRET_KEY_BASE") do
+      value when is_binary(value) and byte_size(value) > 0 ->
+        value
 
-      Generate one and pass it through the environment:
+      _ ->
+        raise """
+        SECRET_KEY_BASE is not set, or is empty.
 
-          openssl rand -base64 64
+        Generate one and pass it through the environment:
 
-      It signs session cookies and other tokens, so it must be secret and stable
-      across restarts. Changing it invalidates existing sessions.
-      """
+            openssl rand -base64 64
+
+        It signs session cookies and other tokens, so it must be secret and
+        stable across restarts. Changing it invalidates existing sessions.
+        """
+    end
 
   config :timeless_ui, TimelessUIWeb.Endpoint,
     url: [host: ui_host, port: ui_port],
