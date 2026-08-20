@@ -238,6 +238,29 @@ if config_env() == :prod do
   ui_port = System.get_env("TIMELESS_UI_PORT", "4000") |> String.to_integer()
   ui_host = System.get_env("PHX_HOST", "localhost")
 
+  # The externally visible URL, which is NOT the listen port once a TLS
+  # terminator sits in front. Phoenix validates the LiveView websocket Origin
+  # header against this, so a mismatch fails in the worst way available: the
+  # dashboard renders once and then silently never updates, looking like a dead
+  # monitor rather than a misconfiguration.
+  #
+  # Both default to the listen port and plain http, so a directly-exposed
+  # deployment needs neither.
+  ui_url_scheme = System.get_env("TIMELESS_UI_URL_SCHEME", "http")
+
+  if ui_url_scheme not in ["http", "https"] do
+    raise "TIMELESS_UI_URL_SCHEME must be http or https, got #{inspect(ui_url_scheme)}"
+  end
+
+  ui_url_port =
+    case Integer.parse(System.get_env("TIMELESS_UI_URL_PORT", Integer.to_string(ui_port))) do
+      {port, ""} when port > 0 and port < 65_536 ->
+        port
+
+      _ ->
+        raise "TIMELESS_UI_URL_PORT must be a valid port number"
+    end
+
   # Which interface the UI listens on. Defaults to all interfaces, preserving
   # existing behaviour. Set to 127.0.0.1 when a reverse proxy terminates TLS in
   # front of it: with host networking there is no port mapping to contain the
@@ -280,7 +303,7 @@ if config_env() == :prod do
     end
 
   config :timeless_ui, TimelessUIWeb.Endpoint,
-    url: [host: ui_host, port: ui_port],
+    url: [host: ui_host, port: ui_url_port, scheme: ui_url_scheme],
     http: [ip: ui_bind, port: ui_port],
     server: true,
     secret_key_base: secret_key_base
