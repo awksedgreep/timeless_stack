@@ -302,6 +302,17 @@ if config_env() == :prod do
         """
     end
 
+  # Iconify defaults `generated_icon_static_path` to the relative
+  # "./priv/static/images/icons", which only resolves when the working directory
+  # is a project root. In a release the working directory is the release root
+  # and priv lives under lib/<app>-<vsn>/priv, so every icon lookup missed, and
+  # Iconify then tried to regenerate from the @iconify/json data that exists
+  # only in the build stage. The icons were present the whole time; nothing
+  # could find them, and every icon silently rendered as nothing.
+  config :iconify_ex,
+    generated_icon_static_path:
+      Path.join(Application.app_dir(:timeless_ui, "priv/static"), "images/icons")
+
   config :timeless_ui, TimelessUIWeb.Endpoint,
     url: [host: ui_host, port: ui_url_port, scheme: ui_url_scheme],
     http: [ip: ui_bind, port: ui_port],
