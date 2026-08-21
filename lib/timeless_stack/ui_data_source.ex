@@ -165,6 +165,13 @@ defmodule TimelessStack.UIDataSource do
   end
 
   @impl true
+  def series_loaded?(state, host) do
+    # A cold miss and a host with no series both read as an empty list. The
+    # cache is the only thing that knows which one this is.
+    Cache.get(state.cache_table, {:host_series, host}) != :miss
+  end
+
+  @impl true
   def metric_metadata(state, metric_name) do
     state.metrics_module.get_metadata(state.store, metric_name)
   end

@@ -144,6 +144,10 @@ defmodule TimelessStack.UIDataSource.Cache do
   def handle_cast({:ensure, {:host_series, host} = key}, state) do
     if stale?(state.table, key, state.host_series_ttl) do
       store_result(state.table, key, fetch_host_series(state.metrics_module, state.store, host))
+      # The reader that triggered this fetch was answered "empty" and has no
+      # other reason to ask again. Without this the value lands in the cache
+      # and the page it was fetched for never learns it exists.
+      announce_series(host)
     end
 
     {:noreply, state}
@@ -172,6 +176,17 @@ defmodule TimelessStack.UIDataSource.Cache do
   end
 
   defp schedule_tick(ttl), do: Process.send_after(self(), :tick, ttl)
+
+  # Best-effort: a canvas that is not running is not waiting to hear from us.
+  defp announce_series(host) do
+    Phoenix.PubSub.broadcast(
+      TimelessCanvas.pubsub(),
+      TimelessCanvas.DataSource.Manager.series_topic(),
+      {:series_loaded, host}
+    )
+  catch
+    _, _ -> :ok
+  end
 
   defp stale?(table, key, ttl) do
     case :ets.lookup(table, key) do
