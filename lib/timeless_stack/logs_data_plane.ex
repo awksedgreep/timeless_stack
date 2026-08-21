@@ -5,6 +5,65 @@ defmodule TimelessStack.LogsDataPlane do
 
   @metadata_keys %{"host" => :host, "service" => :service, "path" => :path, "status" => :status}
 
+  @doc """
+  Live tail for a canvas log element.
+
+  Called from the process that will receive the entries, per
+  `TimelessCanvas.StreamSource`, and delegates to the data plane's
+  `/select/logsql/tail`, which sends `{:timeless_logs, :entry, entry}` — the
+  same shape the embedded engine delivered.
+
+  Filtering happens **at the server**: the canvas filters become one LogsQL
+  expression which the data plane compiles into a predicate and evaluates per
+  subscriber before serialising anything. Filtering here instead would ship
+  every log line on the host across the boundary only to discard most of them.
+  """
+  def subscribe(opts \\ []) do
+    case client().tail(logsql_query(opts), self(), []) do
+      {:ok, pid} ->
+        # The tail owns an HTTP connection and the server unsubscribes when it
+        # closes. Linking makes that happen: the manager kills this process to
+        # unsubscribe, and without a link the tail would outlive it, leaking a
+        # connection and a hub subscriber on every re-registration.
+        Process.link(pid)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc false
+  # Canvas filters -> one LogsQL expression. No filters means everything, which
+  # is what an element with its host cleared is asking for.
+  def logsql_query(opts) do
+    metadata = Keyword.get(opts, :metadata, %{})
+
+    terms =
+      Enum.map(metadata, fn {field, value} -> ~s(#{field}:#{quote_value(value)}) end) ++
+        case Keyword.get(opts, :level) do
+          nil -> []
+          level -> [~s(level:#{quote_value(level)})]
+        end
+
+    case terms do
+      [] -> "*"
+      terms -> Enum.join(terms, " AND ")
+    end
+  end
+
+  # Values are quoted unconditionally. Hostnames carry dots and dashes, and a
+  # bare token would either fail to parse or silently match something else.
+  defp quote_value(value) do
+    escaped =
+      value
+      |> to_string()
+      |> String.replace("\\", "\\\\")
+      |> String.replace(~s("), ~s(\\"))
+
+    ~s("#{escaped}")
+  end
+
   def query(filters \\ []) do
     with {:ok, filters} <- translate_filters(filters), do: client().query(filters)
   end
