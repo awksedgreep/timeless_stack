@@ -1,7 +1,12 @@
 defmodule TimelessStack.TracesDataPlane do
   @moduledoc "Compatibility adapter over the Rust traces HTTP boundary."
 
+  @behaviour TimelessCanvas.StreamSource
+
   alias TimelessUI.TracesDataPlane.Client
+
+  # The search endpoint rejects a limit above this.
+  @max_page 100
 
   @doc """
   Live tail for a canvas trace element.
@@ -38,6 +43,58 @@ defmodule TimelessStack.TracesDataPlane do
   # which asks for every span, not none.
   def tail_filters(opts) do
     Keyword.take(opts, [:service, :name, :kind, :status, :attributes])
+  end
+
+  @doc """
+  Historical spans for a canvas trace element, per `TimelessCanvas.StreamSource`.
+
+  The timeline slider asks for a window through this callback rather than
+  through the tail. It is an *optional* callback, so its absence is not a
+  compile error and not a startup error — it raises inside the query task on
+  the first slider drag, once per retry, which is how it presents as the whole
+  interface locking up rather than as one element failing.
+
+  The data plane's search endpoint has no attribute predicate, unlike the tail,
+  so an attribute filter is applied here after the fact. To keep that from
+  silently under-filling the window, the request is widened to the endpoint's
+  maximum page and trimmed back afterwards; a window busy enough to overflow
+  100 spans can still come back short. Giving search the same attribute filter
+  the tail has would remove the compromise.
+  """
+  def query(filters) do
+    {attributes, filters} = Keyword.pop(filters, :attributes)
+    limit = Keyword.get(filters, :limit, @max_page)
+
+    filters =
+      filters
+      |> Keyword.take([:name, :service, :kind, :status, :since, :until, :limit, :offset, :order])
+      |> then(fn filters ->
+        if attributes, do: Keyword.put(filters, :limit, @max_page), else: filters
+      end)
+
+    case client().search(filters) do
+      {:ok, %{entries: entries} = result} ->
+        {:ok, %{result | entries: entries |> filter_attributes(attributes) |> Enum.take(limit)}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp filter_attributes(entries, nil), do: entries
+  defp filter_attributes(entries, attributes) when attributes == %{}, do: entries
+
+  defp filter_attributes(entries, attributes) do
+    Enum.filter(entries, fn entry ->
+      Enum.all?(attributes, fn {key, value} ->
+        # Compared as text, as the tail does, so a value selects the span
+        # whether the exporter sent it as a number or a string.
+        case Map.get(entry.attributes || %{}, key) do
+          nil -> false
+          actual -> to_string(actual) == to_string(value)
+        end
+      end)
+    end)
   end
 
   def stats, do: client().stats()

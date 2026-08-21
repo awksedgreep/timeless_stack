@@ -1,6 +1,8 @@
 defmodule TimelessStack.LogsDataPlane do
   @moduledoc "Compatibility adapter over the Rust logs HTTP boundary."
 
+  @behaviour TimelessCanvas.StreamSource
+
   alias TimelessUI.LogsDataPlane.Client
 
   @metadata_keys %{"host" => :host, "service" => :service, "path" => :path, "status" => :status}
