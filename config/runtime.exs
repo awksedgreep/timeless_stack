@@ -228,13 +228,9 @@ if config_env() == :prod do
     # buffer ever broadcasts and a canvas log element subscribed to them
     # received nothing, whatever its filter. The adapters talk to the Rust
     # boundary that actually holds the data.
-    #
-    # Traces stays on TimelessTraces for now: the data plane exposes no tail
-    # route and the client has no streaming call, so there is nothing for an
-    # adapter to delegate to yet.
     config :timeless_canvas, :stream_backends,
       log: TimelessStack.LogsDataPlane,
-      trace: TimelessTraces
+      trace: TimelessStack.TracesDataPlane
   end
 
   config :opentelemetry, :resource,
