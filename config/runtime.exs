@@ -42,10 +42,16 @@ if config_env() == :prod do
   # makes the stack's opt-in explicit and overridable per deployment.
   data_plane_auth =
     case System.get_env("TIMELESS_DATA_PLANE_AUTH", "required") do
-      "required" -> :required
-      "disabled" -> :disabled
-      other -> raise "TIMELESS_DATA_PLANE_AUTH must be required or disabled, got #{inspect(other)}"
+      "required" ->
+        :required
+
+      "disabled" ->
+        :disabled
+
+      other ->
+        raise "TIMELESS_DATA_PLANE_AUTH must be required or disabled, got #{inspect(other)}"
     end
+
   telemetry_bind_env =
     if telemetry_bind == "127.0.0.1", do: %{}, else: %{"TIMELESS_ALLOW_NON_LOOPBACK" => "1"}
 
@@ -87,7 +93,26 @@ if config_env() == :prod do
       owner: :external,
       engine: :libsql,
       data_dir: metrics_dir,
-      raw_retention_seconds: metrics_retention_raw * 86_400
+      raw_retention_seconds: metrics_retention_raw * 86_400,
+      # There is no in-process store to evaluate rules against here; reads go
+      # to the data plane over HTTP through the same adapter the canvas uses.
+      alert_reader: TimelessStack.MetricsDataPlane
+
+    # Rule storage lives in its own directory: TimelessMetrics.DB opens
+    # <data_dir>/metrics.db, and that name in metrics_dir is the data plane's
+    # own database, which it holds a lock beside.
+    config :timeless_stack, :alerting,
+      enabled: System.get_env("TIMELESS_ALERTING_ENABLED", "true") == "true",
+      data_dir: Path.join(data_dir, "alerts"),
+      store: :timeless_metrics,
+      interval:
+        (case Integer.parse(System.get_env("TIMELESS_ALERT_INTERVAL_SECS", "60")) do
+           {seconds, ""} when seconds > 0 ->
+             :timer.seconds(seconds)
+
+           _ ->
+             raise "invalid TIMELESS_ALERT_INTERVAL_SECS; expected a positive integer"
+         end)
 
     config :timeless_logs,
       owner: :external,
