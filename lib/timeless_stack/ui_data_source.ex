@@ -267,6 +267,15 @@ defmodule TimelessStack.UIDataSource do
 
   defp status_host(element), do: extract_host(element)
 
+  @doc """
+  The label filter an element's queries use.
+
+  Public so alert rules can be scoped by exactly what draws the graph. If a
+  rule derived its own labels, it could watch a different series than the
+  picture it was created from and look correct doing it.
+  """
+  def element_labels(element), do: build_labels(element)
+
   defp build_labels(element) do
     meta = element.meta || %{}
     series_label_key = meta["series_label_key"]

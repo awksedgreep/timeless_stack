@@ -256,6 +256,11 @@ if config_env() == :prod do
     config :timeless_canvas, :stream_backends,
       log: TimelessStack.LogsDataPlane,
       trace: TimelessStack.TracesDataPlane
+
+    # Alert controls render only when a backend is configured, so this and the
+    # supervised evaluator above must travel together: controls without an
+    # evaluator would store rules that never fire.
+    config :timeless_canvas, :alert_backend, TimelessStack.AlertBackend
   end
 
   config :opentelemetry, :resource,
