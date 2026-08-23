@@ -50,12 +50,12 @@ defmodule TimelessStack.MixProject do
       {:timeless_logs, "~> 1.9", override: true},
       {:timeless_traces, "~> 1.9", override: true},
       {:ex_openzl, "~> 0.4", override: true},
-      {:timeless_canvas, github: "awksedgreep/timeless_canvas", tag: "v0.5.4", override: true},
-      {:timeless_ui, github: "awksedgreep/timeless_ui", tag: "v0.9.20", override: true},
-      # Git tag rather than hex: v0.7.21 (remote live tail) ships in this
-      # image ahead of its hex publish, which needs the operator's key.
-      {:timeless_logs_dashboard,
-       github: "awksedgreep/timeless_logs_dashboard", tag: "v0.7.21", override: true},
+      # canvas and timeless_ui are not published to hex, so github is their
+      # only source; they track main while development is fast (no dot-release
+      # tag pins — `mix deps.update` pulls the latest).
+      {:timeless_canvas, github: "awksedgreep/timeless_canvas", branch: "main", override: true},
+      {:timeless_ui, github: "awksedgreep/timeless_ui", branch: "main", override: true},
+      {:timeless_logs_dashboard, "~> 0.7", override: true},
       {:hackney, "~> 1.20"},
       {:recon, "~> 2.5"}
     ]
