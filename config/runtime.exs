@@ -6,9 +6,13 @@ config :timeless_canvas,
 if config_env() == :prod do
   data_dir = System.get_env("TIMELESS_DATA_DIR", "/data")
 
+  # The canonical selector value is "libsql" — the libsql-extension data
+  # planes are the product. "rust" is a compatibility alias for existing
+  # environments and means exactly the same thing (the internal mode atom
+  # stays :rust until the :legacy selector is removed in 0.9.0).
   data_plane_mode =
-    case System.get_env("TIMELESS_DATA_PLANE", "rust") do
-      "rust" ->
+    case System.get_env("TIMELESS_DATA_PLANE", "libsql") do
+      libsql when libsql in ["libsql", "rust"] ->
         :rust
 
       "legacy" ->
@@ -23,7 +27,7 @@ if config_env() == :prod do
         end
 
       value ->
-        raise "invalid TIMELESS_DATA_PLANE=#{inspect(value)}; expected rust or legacy"
+        raise "invalid TIMELESS_DATA_PLANE=#{inspect(value)}; expected libsql or legacy"
     end
 
   metrics_port = System.get_env("TIMELESS_METRICS_PORT", "8428") |> String.to_integer()
