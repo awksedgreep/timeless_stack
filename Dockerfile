@@ -54,12 +54,6 @@ COPY timeless_stack/mix.exs timeless_stack/mix.lock ./
 COPY timeless_stack/config config
 
 RUN mix deps.get --only prod
-# Zero-pins policy: every image build pulls the internal packages fresh on
-# their minor lines, so a release in any timeless repo reaches this image
-# on the next build with no coordinated respin and no lockfile ceremony.
-RUN mix deps.update ex_alp ex_openzl rocket timeless_canvas timeless_logs \
-    timeless_logs_dashboard timeless_metrics timeless_traces \
-    timeless_traces_dashboard timeless_ui
 RUN mix deps.compile
 
 COPY timeless_stack/lib lib
