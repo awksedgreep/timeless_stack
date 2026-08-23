@@ -56,7 +56,6 @@ defmodule TimelessStack.MixProject do
       {:timeless_canvas, github: "awksedgreep/timeless_canvas", branch: "main", override: true},
       {:timeless_ui, github: "awksedgreep/timeless_ui", branch: "main", override: true},
       {:timeless_logs_dashboard, "~> 0.7", override: true},
-      {:hackney, "~> 1.20"},
       {:recon, "~> 2.5"}
     ]
   end
