@@ -46,7 +46,7 @@ defmodule TimelessStack.MixProject do
 
   defp deps do
     [
-      {:timeless_metrics, "~> 6.5", override: true},
+      {:timeless_metrics, ">= 6.6.6 and < 7.0.0", override: true},
       {:timeless_logs, "~> 1.9", override: true},
       {:timeless_traces, "~> 1.9", override: true},
       {:ex_openzl, "~> 0.4", override: true},
