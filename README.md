@@ -94,8 +94,9 @@ downloaded from the named timeless-libsql release, not built from source —
 the tag must have published artifacts):
 
 ```bash
-docker build -t timeless-stack -f timeless_stack/Dockerfile \
-  --build-arg TIMELESS_BUILD_RELEASE=v0.7.1 .
+podman build --ignorefile timeless_stack/.dockerignore \
+  -t timeless-stack -f timeless_stack/Dockerfile \
+  --build-arg TIMELESS_BUILD_RELEASE=v0.8.1 .
 ```
 
 ## Architecture
