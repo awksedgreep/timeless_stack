@@ -22,7 +22,7 @@ An all-in-one observability container that bundles [TimelessMetrics](https://git
 
 | Port | Service |
 |------|---------|
-| 4000 | TimelessUI (Phoenix web dashboard) |
+| 5556 | TimelessUI (Phoenix web dashboard) |
 | 8428 | TimelessMetrics (Prometheus-compatible HTTP) |
 | 9428 | TimelessLogs (log ingestion HTTP) |
 | 10428 | TimelessTraces (OTLP trace ingestion HTTP) |
@@ -32,10 +32,14 @@ An all-in-one observability container that bundles [TimelessMetrics](https://git
 ### Container (recommended)
 
 ```bash
-docker pull ghcr.io/awksedgreep/timeless-stack:latest
+timeless_secret_key_base="$(openssl rand -base64 64)"
 
-docker run -d \
-  -p 4000:4000 \
+podman pull ghcr.io/awksedgreep/timeless-stack:latest
+
+podman run -d \
+  --name timeless-stack \
+  -e SECRET_KEY_BASE="$timeless_secret_key_base" \
+  -p 5556:5556 \
   -p 8428:8428 \
   -p 9428:9428 \
   -p 10428:10428 \
@@ -49,7 +53,7 @@ All data is stored under `/data` (metrics, logs, traces, and the UI database). M
 pasta user-mode forwarding, which costs ~13–18% of peak ingest throughput
 at saturation (measured 2026-07-18, timeless_metrics cardinality bank).
 For ingest-heavy deployments use `--network=host` (drop the `-p` flags —
-the stack binds 4000/8428/9428/10428 directly). Under sustained heavy
+the stack binds 5556/8428/9428/10428 directly). Under sustained heavy
 ingest also set a generous stop timeout (e.g. `--stop-timeout 120` or
 `TimeoutStopSec=` in quadlets) so the shutdown flush completes.
 

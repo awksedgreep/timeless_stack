@@ -13,7 +13,7 @@ temporary=$(mktemp -d -p /tmp timeless-session6.XXXXXX)
 container=
 cleanup() {
   if [ -n "$container" ]; then
-    docker rm -f "$container" >/dev/null 2>&1 || true
+    podman rm -f "$container" >/dev/null 2>&1 || true
   fi
   rm -rf "$temporary"
 }
@@ -103,15 +103,17 @@ test -f "$install_root/config/sentinel"
 )
 
 if [ "${RUN_CONTAINER_DRILL:-0}" = 1 ]; then
-  commit=$(git -C "$libsql" rev-parse HEAD)
+  release=${TIMELESS_BUILD_RELEASE:-$(git -C "$libsql" describe --tags --abbrev=0)}
+  commit=$(git -C "$libsql" rev-list -n 1 "$release")
   tar -C "$workspace" \
     --exclude='*/.git' --exclude='*/target' --exclude='*/_build' \
     --exclude='*/deps' --exclude='*/dist' \
     -cf - timeless_stack timeless-libsql |
-    docker build --build-arg "TIMELESS_BUILD_COMMIT=$commit" \
+    podman build --build-arg "TIMELESS_BUILD_COMMIT=$commit" \
+      --build-arg "TIMELESS_BUILD_RELEASE=$release" \
       -f timeless_stack/Dockerfile -t timeless-stack:session6 -
 
-  docker run --rm --entrypoint /bin/sh timeless-stack:session6 -c \
+  podman run --rm --entrypoint /bin/sh timeless-stack:session6 -c \
     'test -x /usr/bin/kill &&
      test -x /app/bin/timeless-metrics-api &&
      test -x /app/bin/timeless-logs-api &&
@@ -120,21 +122,22 @@ if [ "${RUN_CONTAINER_DRILL:-0}" = 1 ]; then
      test -r /app/lib/libtimeless_ext.so'
 
   container="timeless-session6-$$"
-  docker run -d --name "$container" --tmpfs /data \
+  podman run -d --name "$container" --tmpfs /data \
     -e SECRET_KEY_BASE=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+    -e TIMELESS_DATA_PLANE_AUTH=disabled \
     timeless-stack:session6 >/dev/null
 
   ready=false
   attempts=0
   while [ "$attempts" -lt 60 ]; do
-    if [ "$(docker inspect "$container" --format '{{.State.Running}}')" != true ]; then
+    if [ "$(podman inspect "$container" --format '{{.State.Running}}')" != true ]; then
       break
     fi
-    if docker exec "$container" /bin/sh -c \
+    if podman exec "$container" /bin/sh -c \
       'curl -sf http://localhost:8428/live >/dev/null &&
        curl -sf http://localhost:9428/live >/dev/null &&
        curl -sf http://localhost:10428/live >/dev/null &&
-       curl -sf http://localhost:4000 >/dev/null'; then
+       curl -sf http://localhost:5556 >/dev/null'; then
       ready=true
       break
     fi
@@ -142,11 +145,11 @@ if [ "${RUN_CONTAINER_DRILL:-0}" = 1 ]; then
     sleep 1
   done
   if [ "$ready" != true ]; then
-    docker logs "$container"
+    podman logs "$container"
     exit 1
   fi
-  docker stop --time 30 "$container" >/dev/null
-  docker rm "$container" >/dev/null
+  podman stop --time 30 "$container" >/dev/null
+  podman rm "$container" >/dev/null
   container=
 fi
 

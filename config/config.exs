@@ -73,7 +73,7 @@ config :timeless_ui, TimelessUIWeb.Endpoint,
   ],
   pubsub_server: TimelessUI.PubSub,
   live_view: [signing_salt: "mRU1QG4S"],
-  http: [ip: {127, 0, 0, 1}, port: 4000],
+  http: [ip: {127, 0, 0, 1}, port: 5556],
   secret_key_base: "6HpOY7CC/N+rgF+zzOAbGncebnKFnh41LuJzOdNVfa4pK3LApArebfIxP1aB6EBH"
 
 config :timeless_ui, TimelessUI.Repo, database: Path.expand("../data/timeless_ui.db", __DIR__)

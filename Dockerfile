@@ -39,14 +39,6 @@ RUN mix local.hex --force && mix local.rebar --force
 
 ENV MIX_ENV=prod
 
-ARG TIMELESS_BUILD_COMMIT
-
-# The release tag the data plane comes from, recorded as a label so the
-# image reports it directly. The commit alone is unreadable — the SHA this
-# build previously froze on gave no hint it was three minor versions behind.
-ARG TIMELESS_BUILD_RELEASE
-LABEL org.opencontainers.image.base.name="timeless-libsql:${TIMELESS_BUILD_RELEASE}"
-
 WORKDIR /build/timeless_stack
 COPY timeless_stack/mix.exs timeless_stack/mix.lock ./
 
@@ -75,6 +67,15 @@ RUN mix release
 # Stage 2: Runtime (trixie for GLIBC >= 2.38 needed by ex_openzl NIF)
 FROM docker.io/debian:trixie-slim
 
+# Record both the human-readable release and its exact source identity on the
+# final image. Labels applied in the builder stage do not survive the final
+# FROM boundary.
+ARG TIMELESS_BUILD_COMMIT
+ARG TIMELESS_BUILD_RELEASE
+LABEL org.opencontainers.image.base.name="timeless-libsql:${TIMELESS_BUILD_RELEASE}" \
+      org.opencontainers.image.revision="${TIMELESS_BUILD_COMMIT}" \
+      org.opencontainers.image.version="${TIMELESS_BUILD_RELEASE}"
+
 # netbase supplies /etc/protocols and /etc/services, which trixie-slim omits.
 # Erlang resolves protocol atoms such as :icmp through that database, so without
 # it the ICMP poller fails with {:invalid, {:protocol, :icmp}} — an error that
@@ -102,13 +103,13 @@ COPY --from=dataplane /dataplane/bundle/lib/libtimeless_ext.so /app/lib/
 VOLUME /data
 
 # Metrics, Logs, Traces, UI
-EXPOSE 8428 9428 10428 4000
+EXPOSE 8428 9428 10428 5556
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD curl -sf http://localhost:8428/live && \
       curl -sf http://localhost:9428/live && \
       curl -sf http://localhost:10428/live && \
-      curl -sf http://localhost:4000 >/dev/null
+      curl -sf http://localhost:5556 >/dev/null
 
 ENTRYPOINT ["bin/timeless_stack"]
 CMD ["start"]

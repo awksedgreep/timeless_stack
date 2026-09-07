@@ -14,7 +14,7 @@ ExecStart=/usr/bin/podman run --rm --name timeless-stack \
   -p 8428:8428 \
   -p 9428:9428 \
   -p 10428:10428 \
-  -p 4001:4000 \
+  -p 5556:5556 \
   -v timeless_data:/data \
   --env-file /etc/timeless-stack/env \
   ghcr.io/awksedgreep/timeless-stack:latest

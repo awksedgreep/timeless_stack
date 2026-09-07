@@ -1,6 +1,6 @@
 import Config
 
-ui_port = System.get_env("TIMELESS_UI_PORT", "4000") |> String.to_integer()
+ui_port = System.get_env("TIMELESS_UI_PORT", "5556") |> String.to_integer()
 
 # Local data directories for dev (config.exs defaults are for containers)
 # Ports offset by 10000 to avoid conflict with Victoria* in podman on 8428/9428/10428

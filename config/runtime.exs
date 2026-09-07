@@ -274,7 +274,7 @@ if config_env() == :prod do
   poller_enabled = System.get_env("TIMELESS_POLLER_ENABLED", "true") == "true"
   config :timeless_ui, :poller, enabled: poller_enabled
 
-  ui_port = System.get_env("TIMELESS_UI_PORT", "4000") |> String.to_integer()
+  ui_port = System.get_env("TIMELESS_UI_PORT", "5556") |> String.to_integer()
   ui_host = System.get_env("PHX_HOST", "localhost")
 
   # The externally visible URL, which is NOT the listen port once a TLS

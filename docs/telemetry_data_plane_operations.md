@@ -63,7 +63,7 @@ directory, start the Stack release and wait for all of these to succeed:
 curl -f http://127.0.0.1:8428/live
 curl -f http://127.0.0.1:9428/live
 curl -f http://127.0.0.1:10428/live
-curl -f http://127.0.0.1:4000/
+curl -f http://127.0.0.1:5556/
 ```
 
 `/live`, `/ready`, and `/health` are deliberately unauthenticated probe
