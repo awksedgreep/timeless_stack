@@ -17,6 +17,11 @@ ExecStart=/usr/bin/podman run --rm --name timeless-stack \
   -p 5556:5556 \
   -v timeless_data:/data \
   --env-file /etc/timeless-stack/env \
+  --health-cmd "curl -fsS http://localhost:8428/live && curl -fsS http://localhost:9428/live && curl -fsS http://localhost:10428/live && curl -fsS http://localhost:5556 >/dev/null" \
+  --health-interval 30s \
+  --health-timeout 5s \
+  --health-start-period 15s \
+  --health-retries 3 \
   ghcr.io/awksedgreep/timeless-stack:latest
 
 ExecStop=/usr/bin/podman stop timeless-stack

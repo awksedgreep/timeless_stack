@@ -105,11 +105,5 @@ VOLUME /data
 # Metrics, Logs, Traces, UI
 EXPOSE 8428 9428 10428 5556
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD curl -sf http://localhost:8428/live && \
-      curl -sf http://localhost:9428/live && \
-      curl -sf http://localhost:10428/live && \
-      curl -sf http://localhost:5556 >/dev/null
-
 ENTRYPOINT ["bin/timeless_stack"]
 CMD ["start"]

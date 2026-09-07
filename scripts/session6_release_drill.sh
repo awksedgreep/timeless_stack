@@ -105,13 +105,19 @@ test -f "$install_root/config/sentinel"
 if [ "${RUN_CONTAINER_DRILL:-0}" = 1 ]; then
   release=${TIMELESS_BUILD_RELEASE:-$(git -C "$libsql" describe --tags --abbrev=0)}
   commit=$(git -C "$libsql" rev-list -n 1 "$release")
+  case "$(uname -m)" in
+    x86_64) targetarch=amd64 ;;
+    aarch64 | arm64) targetarch=arm64 ;;
+    *) printf 'unsupported container architecture: %s\n' "$(uname -m)" >&2; exit 1 ;;
+  esac
   tar -C "$workspace" \
     --exclude='*/.git' --exclude='*/target' --exclude='*/_build' \
     --exclude='*/deps' --exclude='*/dist' \
     -cf - timeless_stack timeless-libsql |
-    podman build --build-arg "TIMELESS_BUILD_COMMIT=$commit" \
+    podman build --build-arg "TARGETARCH=$targetarch" \
+      --build-arg "TIMELESS_BUILD_COMMIT=$commit" \
       --build-arg "TIMELESS_BUILD_RELEASE=$release" \
-      -f timeless_stack/Dockerfile -t timeless-stack:session6 -
+      -f timeless_stack/Containerfile -t timeless-stack:session6 -
 
   podman run --rm --entrypoint /bin/sh timeless-stack:session6 -c \
     'test -x /usr/bin/kill &&

@@ -44,6 +44,11 @@ podman run -d \
   -p 9428:9428 \
   -p 10428:10428 \
   -v timeless_data:/data \
+  --health-cmd "curl -fsS http://localhost:8428/live && curl -fsS http://localhost:9428/live && curl -fsS http://localhost:10428/live && curl -fsS http://localhost:5556 >/dev/null" \
+  --health-interval 30s \
+  --health-timeout 5s \
+  --health-start-period 15s \
+  --health-retries 3 \
   ghcr.io/awksedgreep/timeless-stack:latest
 ```
 
@@ -55,7 +60,9 @@ at saturation (measured 2026-07-18, timeless_metrics cardinality bank).
 For ingest-heavy deployments use `--network=host` (drop the `-p` flags —
 the stack binds 5556/8428/9428/10428 directly). Under sustained heavy
 ingest also set a generous stop timeout (e.g. `--stop-timeout 120` or
-`TimeoutStopSec=` in quadlets) so the shutdown flush completes.
+`TimeoutStopSec=` in Quadlets) so the shutdown flush completes. The health
+probe is configured by Podman at container creation because the OCI image
+format intentionally has no image-level health-check field.
 
 ### From Source
 
@@ -98,9 +105,11 @@ downloaded from the named timeless-libsql release, not built from source —
 the tag must have published artifacts):
 
 ```bash
-podman build --ignorefile timeless_stack/.dockerignore \
-  -t timeless-stack -f timeless_stack/Dockerfile \
-  --build-arg TIMELESS_BUILD_RELEASE=v0.8.1 .
+podman build --ignorefile timeless_stack/.containerignore \
+  -t timeless-stack -f timeless_stack/Containerfile \
+  --build-arg TARGETARCH=amd64 \
+  --build-arg TIMELESS_BUILD_COMMIT=2a6a3c994917e704fff31c78f29b108c08b3da29 \
+  --build-arg TIMELESS_BUILD_RELEASE=v0.8.2 .
 ```
 
 ## Architecture

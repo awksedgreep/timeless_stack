@@ -6,7 +6,7 @@
 - [ ] Global retention policy overrides at the stack level
 - [ ] Backup scheduling via GenServer (cron-style periodic backups)
 - [ ] Self-instrumentation: write stack resource usage (memory, disk, request rates, BEAM stats) into timeless_metrics - doubles as test data for GUIs
-- [ ] `docker-compose.yml` with Grafana pre-configured against the Prometheus-compatible endpoint
+- [ ] Podman Quadlet bundle with Grafana pre-configured against the Prometheus-compatible endpoint
 
 ## v2.0 - Clustering
 

@@ -10,8 +10,17 @@ env:
   IMAGE_NAME: awksedgreep/timeless-stack
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
+  build:
+    name: Build ${{ matrix.arch }} image with Podman
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
@@ -45,9 +54,9 @@ jobs:
       - name: Resolve newest telemetry data-plane release
         id: telemetry-identity
         run: |
-          line="$(git ls-remote --tags --refs --sort=-v:refname \
-                   https://github.com/awksedgreep/timeless-libsql 'v*' \
-                 | head -1)"
+          mapfile -t releases < <(git ls-remote --tags --refs --sort=-v:refname \
+            https://github.com/awksedgreep/timeless-libsql 'v*')
+          line="${releases[0]:-}"
           ref="${line##*refs/tags/}"
           commit="${line%%$'\t'*}"
           if [ -z "$ref" ]; then
@@ -55,42 +64,74 @@ jobs:
                  "build against an unreleased data plane."
             exit 1
           fi
+          peeled="$(git ls-remote https://github.com/awksedgreep/timeless-libsql \
+            "refs/tags/$ref^{}")"
+          if [ -n "$peeled" ]; then
+            commit="${peeled%%$'\t'*}"
+          fi
           echo "building against timeless-libsql $ref ($commit)"
           echo "release=$ref" >> "$GITHUB_OUTPUT"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract version from tag
         id: meta
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Copy .dockerignore to workspace root
-        run: cp timeless_stack/.dockerignore .dockerignore
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: timeless_stack/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
-            ghcr.io/${{ env.IMAGE_NAME }}:latest
-          platforms: linux/amd64,linux/arm64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            TIMELESS_BUILD_COMMIT=${{ steps.telemetry-identity.outputs.commit }}
-            TIMELESS_BUILD_RELEASE=${{ steps.telemetry-identity.outputs.release }}
+      - name: Log in to GHCR with Podman
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | podman login "$REGISTRY" --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Copy container ignore file to workspace root
+        run: cp timeless_stack/.containerignore .containerignore
+
+      - name: Build with Podman
+        run: |
+          image="$REGISTRY/$IMAGE_NAME:${{ steps.meta.outputs.version }}-${{ matrix.arch }}"
+          podman build \
+            --platform "linux/${{ matrix.arch }}" \
+            --ignorefile .containerignore \
+            --file timeless_stack/Containerfile \
+            --build-arg "TARGETARCH=${{ matrix.arch }}" \
+            --build-arg "TIMELESS_BUILD_COMMIT=${{ steps.telemetry-identity.outputs.commit }}" \
+            --build-arg "TIMELESS_BUILD_RELEASE=${{ steps.telemetry-identity.outputs.release }}" \
+            --tag "$image" \
+            .
+          podman push "$image"
+
+  publish-manifest:
+    name: Publish multi-architecture manifest with Podman
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Extract version from tag
+        id: meta
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Log in to GHCR with Podman
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | podman login "$REGISTRY" --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Publish versioned and latest manifests
+        run: |
+          versioned="$REGISTRY/$IMAGE_NAME:${{ steps.meta.outputs.version }}"
+          podman manifest create "$versioned" \
+            "$versioned-amd64" \
+            "$versioned-arm64"
+          podman manifest push --all "$versioned" "$versioned"
+          podman manifest push --all "$versioned" "$REGISTRY/$IMAGE_NAME:latest"

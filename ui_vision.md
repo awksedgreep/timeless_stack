@@ -46,7 +46,7 @@ For power users who live in tiling WMs:
 ### Infrastructure Elements
 
 - **Server** - physical or virtual machine, shows hostname, IP, OS
-- **Container** - Docker/Podman container, shows image, resource limits
+- **Container** - OCI container managed with Podman, shows image and resource limits
 - **Service** - logical service spanning multiple hosts
 - **Database** - with query rate, connection pool, replication lag overlays
 - **Load balancer** - with upstream health and request distribution
