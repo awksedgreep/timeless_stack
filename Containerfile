@@ -25,7 +25,7 @@ RUN test -n "${TIMELESS_BUILD_RELEASE}" && \
     mv "${name}" bundle
 
 # Stage 1: Build
-FROM docker.io/hexpm/elixir:1.18.3-erlang-27.3.4-debian-bookworm-20250428 AS builder
+FROM docker.io/hexpm/elixir:1.20.4-erlang-29.0.6-debian-trixie-20260824 AS builder
 
 RUN apt-get update && \
     apt-get install -y git build-essential cmake curl && \

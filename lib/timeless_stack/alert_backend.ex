@@ -107,11 +107,14 @@ defmodule TimelessStack.AlertBackend do
   defp presence(value), do: value
 
   # The rules database is a supervised process that may not be running --
-  # alerting can be disabled, and the library raises rather than returning
-  # errors. The canvas renders a message either way; it must not crash the
-  # LiveView because alerting is off.
+  # alerting can be disabled, and the library may return an error or raise.
+  # The canvas renders a message either way; it must not crash the LiveView
+  # because alerting is off.
   defp safely(fun) do
-    fun.()
+    case fun.() do
+      {:error, reason} -> {:error, {:alerting_unavailable, reason}}
+      result -> result
+    end
   rescue
     error -> {:error, {:alerting_unavailable, {:exception, error}}}
   catch
