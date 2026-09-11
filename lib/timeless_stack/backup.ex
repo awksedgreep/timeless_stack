@@ -91,9 +91,10 @@ defmodule TimelessStack.Backup do
          {:ok, artifacts} <- artifact_inventory(staging),
          manifest = manifest(reports, health, control, release_state, policies, artifacts),
          :ok <- write_json(Path.join(staging, "manifest.json"), manifest),
-         {:ok, checksummed} <- artifact_inventory(staging),
+         {:ok, manifest_entry} <- inventory_entry(staging, Path.join(staging, "manifest.json")),
+         checksummed = artifacts ++ [manifest_entry],
          :ok <- write_checksums(staging, checksummed),
-         {:ok, _verified} <- verify(staging),
+         :ok <- verify_staged(staging, checksummed),
          :ok <- publish_restore(staging, target) do
       {:ok, Map.put(manifest, :path, target)}
     end
@@ -228,32 +229,36 @@ defmodule TimelessStack.Backup do
   end
 
   defp copy_verified_file(source, destination) do
-    cond do
-      not File.regular?(source) ->
-        {:error, {:restore_source_missing, source}}
-
-      File.exists?(destination) ->
-        {:error, {:restore_destination_exists, destination}}
-
-      true ->
-        with :ok <- File.mkdir_p(Path.dirname(destination)),
-             :ok <- File.cp(source, destination),
-             :ok <- File.touch(destination, File.stat!(source, time: :posix).mtime),
-             expected = sha256_file(source),
-             ^expected <- sha256_file(destination),
-             :ok <- sync_file(destination) do
-          :ok
-        else
-          actual when is_binary(actual) ->
-            {:error, {:restore_copy_digest_mismatch, source, actual}}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+    case stream_copy(source, destination) do
+      {:ok, _copy} -> :ok
+      {:error, :source_not_regular} -> {:error, {:restore_source_missing, source}}
+      {:error, :destination_exists} -> {:error, {:restore_destination_exists, destination}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
   defp verify_sqlite_backup(path, signal) do
+    timeout = Application.get_env(:timeless_stack, :sqlite_verify_timeout, 300_000)
+
+    task =
+      Task.async(fn ->
+        try do
+          verify_sqlite_backup_sync(path, signal)
+        rescue
+          error -> {:error, {:sqlite_verification_failed, path, error}}
+        catch
+          kind, reason -> {:error, {:sqlite_verification_failed, path, kind, reason}}
+        end
+      end)
+
+    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+      {:ok, result} -> result
+      {:exit, reason} -> {:error, {:sqlite_verification_failed, path, reason}}
+      nil -> {:error, {:sqlite_verification_timeout, path, timeout}}
+    end
+  end
+
+  defp verify_sqlite_backup_sync(path, signal) do
     with {:ok, connection} <- Exqlite.Sqlite3.open(path, mode: :readonly) do
       try do
         with {:ok, [["ok"]]} <- TimelessMetrics.DB.execute(connection, "PRAGMA quick_check", []),
@@ -305,7 +310,7 @@ defmodule TimelessStack.Backup do
       {:error, reason} -> {:error, reason}
     end
     |> case do
-      :ok -> File.rename(staging, target)
+      :ok -> rename_staging(staging, target)
       {:error, _reason} = error -> error
     end
   end
@@ -488,15 +493,12 @@ defmodule TimelessStack.Backup do
       source = safe_join(source_root, relative)
       destination = safe_join(destination_root, relative)
 
-      with true <- File.regular?(source),
-           :ok <- File.mkdir_p(Path.dirname(destination)),
-           :ok <- File.cp(source, destination),
-           :ok <- File.touch(destination, map_value(entry, :mtime)),
-           ^expected <- sha256_file(destination),
-           :ok <- sync_file(destination) do
+      with {:ok, %{sha256: actual}} <-
+             stream_copy(source, destination, mtime: map_value(entry, :mtime)),
+           ^expected <- actual do
         {:cont, :ok}
       else
-        false ->
+        {:error, :source_not_regular} ->
           {:halt, {:error, {:invalid_legacy_source_path, relative}}}
 
         actual when is_binary(actual) ->
@@ -568,21 +570,31 @@ defmodule TimelessStack.Backup do
   end
 
   defp artifact_inventory(root) do
-    files =
+    entries =
       root
       |> regular_files()
-      |> Enum.reject(&(Path.basename(&1) == "SHA256SUMS"))
-      |> Enum.map(fn path ->
-        %{
-          "path" => Path.relative_to(path, root),
-          "bytes" => File.stat!(path).size,
-          "sha256" => sha256_file(path)
-        }
-      end)
+      |> Enum.reject(fn {path, _stat} -> Path.basename(path) == "SHA256SUMS" end)
+      |> Enum.map(fn {path, stat} -> inventory_entry(root, path, stat) end)
 
-    {:ok, files}
+    {:ok, entries}
   rescue
     error -> {:error, {:inventory_backup, Exception.message(error)}}
+  end
+
+  defp inventory_entry(root, path) do
+    case File.lstat(path) do
+      {:ok, %{type: :regular} = stat} -> {:ok, inventory_entry(root, path, stat)}
+      {:ok, stat} -> {:error, {:unsupported_backup_path, path, stat.type}}
+      {:error, reason} -> {:error, {:inventory_backup, path, reason}}
+    end
+  end
+
+  defp inventory_entry(root, path, stat) do
+    %{
+      "path" => Path.relative_to(path, root),
+      "bytes" => stat.size,
+      "sha256" => sha256_file(path)
+    }
   end
 
   defp regular_files(root) do
@@ -592,10 +604,11 @@ defmodule TimelessStack.Backup do
     |> Enum.flat_map(fn name ->
       path = Path.join(root, name)
 
-      cond do
-        File.regular?(path) -> [path]
-        File.dir?(path) -> regular_files(path)
-        true -> raise "backup contains unsupported path #{path}"
+      case File.lstat(path) do
+        {:ok, %{type: :regular} = stat} -> [{path, stat}]
+        {:ok, %{type: :directory}} -> regular_files(path)
+        {:ok, stat} -> raise "backup contains unsupported #{stat.type} path #{path}"
+        {:error, reason} -> raise "cannot inspect backup path #{path}: #{inspect(reason)}"
       end
     end)
   end
@@ -635,9 +648,41 @@ defmodule TimelessStack.Backup do
     end)
   end
 
+  # Creation already hashed every immutable artifact after all producers had
+  # synced it. Validate that the generated checksum index and file set describe
+  # exactly those hashes without re-reading multi-GB databases. `verify/1`
+  # remains a full independent re-hash for restores and operator checks.
+  defp verify_staged(root, expected_entries) do
+    expected_checksums =
+      expected_entries
+      |> Enum.map(&{&1["path"], &1["sha256"]})
+      |> Enum.sort()
+
+    expected_sizes = Map.new(expected_entries, &{&1["path"], &1["bytes"]})
+
+    with {:ok, body} <- File.read(Path.join(root, "SHA256SUMS")),
+         {:ok, parsed} <- parse_checksums(body),
+         true <- Enum.sort(parsed) == expected_checksums,
+         {:ok, manifest} <- read_json(Path.join(root, "manifest.json")),
+         true <- manifest["format_version"] == @format_version,
+         true <- staged_sizes(root) == expected_sizes do
+      :ok
+    else
+      false -> {:error, :invalid_staged_backup}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp staged_sizes(root) do
+    root
+    |> regular_files()
+    |> Enum.reject(fn {path, _stat} -> Path.basename(path) == "SHA256SUMS" end)
+    |> Map.new(fn {path, stat} -> {Path.relative_to(path, root), stat.size} end)
+  end
+
   defp publish(staging, target) do
     with :ok <- require_new_target(target),
-         :ok <- File.rename(staging, target) do
+         :ok <- rename_staging(staging, target) do
       :ok
     else
       {:error, reason} -> {:error, {:publish_backup, reason}}
@@ -672,6 +717,97 @@ defmodule TimelessStack.Backup do
          :ok <- :file.sync(file),
          :ok <- :file.close(file) do
       :ok
+    end
+  end
+
+  # Staging is deliberately a hidden sibling of the target. Keeping this
+  # invariant explicit guarantees the final rename is same-filesystem atomic.
+  defp rename_staging(staging, target) do
+    if Path.dirname(Path.expand(staging)) == Path.dirname(Path.expand(target)) do
+      File.rename(staging, target)
+    else
+      {:error, :staging_must_share_target_parent}
+    end
+  end
+
+  defp stream_copy(source, destination, opts \\ []) do
+    with {:ok, source_stat} <- regular_source(source),
+         :ok <- require_new_copy_target(destination),
+         :ok <- File.mkdir_p(Path.dirname(destination)),
+         {:ok, source_file} <- :file.open(String.to_charlist(source), [:read, :binary, :raw]) do
+      case :file.open(String.to_charlist(destination), [:write, :binary, :raw, :exclusive]) do
+        {:ok, destination_file} ->
+          try do
+            with {:ok, digest, bytes} <-
+                   copy_chunks(
+                     source_file,
+                     destination_file,
+                     :crypto.hash_init(:sha256),
+                     0
+                   ),
+                 true <- bytes == source_stat.size,
+                 :ok <- :file.sync(destination_file),
+                 :ok <-
+                   File.touch(destination, Keyword.get(opts, :mtime, source_stat.mtime)),
+                 :ok <- sync_file(destination) do
+              {:ok, %{sha256: Base.encode16(digest, case: :lower), bytes: bytes}}
+            else
+              false -> {:error, :copy_size_mismatch}
+              {:error, reason} -> {:error, reason}
+            end
+          after
+            :file.close(destination_file)
+            :file.close(source_file)
+          end
+
+        {:error, reason} ->
+          :file.close(source_file)
+          {:error, reason}
+      end
+    else
+      {:error, :eexist} -> {:error, :destination_exists}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp regular_source(path) do
+    case File.lstat(path, time: :posix) do
+      {:ok, %{type: :regular} = stat} -> {:ok, stat}
+      {:ok, _stat} -> {:error, :source_not_regular}
+      {:error, :enoent} -> {:error, :source_not_regular}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp require_new_copy_target(path) do
+    case File.lstat(path) do
+      {:error, :enoent} -> :ok
+      {:ok, _stat} -> {:error, :destination_exists}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp copy_chunks(source, destination, digest, bytes) do
+    case :file.read(source, 1_048_576) do
+      {:ok, chunk} ->
+        case :file.write(destination, chunk) do
+          :ok ->
+            copy_chunks(
+              source,
+              destination,
+              :crypto.hash_update(digest, chunk),
+              bytes + byte_size(chunk)
+            )
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      :eof ->
+        {:ok, :crypto.hash_final(digest), bytes}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

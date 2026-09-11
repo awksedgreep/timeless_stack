@@ -3,31 +3,42 @@ defmodule TimelessStack.UIDataSourceStatusesTest do
 
   alias TimelessStack.UIDataSource
 
-  # Batched statuses run in the caller process, so the fake can use the
-  # process dictionary for stubs and message passing for call counting.
   defmodule FakeLogs do
     def field_values(field, filters) do
-      send(self(), {:field_values, field, filters})
+      send(test_pid(), {:field_values, field, filters})
       level = Keyword.fetch!(filters, :level)
-      hosts = Process.get({:fake_hosts, level}, [])
+      hosts = Application.get_env(:timeless_stack, hosts_key(level), [])
       {:ok, Enum.map(hosts, &%{"value" => &1, "hits" => 1})}
     end
 
     def query(filters) do
-      send(self(), {:query, filters})
+      send(test_pid(), {:query, filters})
       level = Keyword.fetch!(filters, :level)
       host = get_in(Keyword.fetch!(filters, :metadata), ["host"])
 
       entries =
-        if host in Process.get({:fake_hosts, level}, []), do: [%{message: "boom"}], else: []
+        if host in Application.get_env(:timeless_stack, hosts_key(level), []),
+          do: [%{message: "boom"}],
+          else: []
 
       {:ok, %{entries: entries}}
     end
+
+    defp test_pid, do: Application.fetch_env!(:timeless_stack, :fake_logs_test_pid)
+    defp hosts_key(:error), do: :fake_error_hosts
+    defp hosts_key(:warning), do: :fake_warning_hosts
   end
 
   setup do
     Application.put_env(:timeless_stack, :timeless_logs_module, FakeLogs)
-    on_exit(fn -> Application.delete_env(:timeless_stack, :timeless_logs_module) end)
+    Application.put_env(:timeless_stack, :fake_logs_test_pid, self())
+
+    on_exit(fn ->
+      Application.delete_env(:timeless_stack, :timeless_logs_module)
+      Application.delete_env(:timeless_stack, :fake_logs_test_pid)
+      Application.delete_env(:timeless_stack, :fake_error_hosts)
+      Application.delete_env(:timeless_stack, :fake_warning_hosts)
+    end)
 
     {:ok, state} = UIDataSource.init(%{metrics_store: :unused_store})
     %{state: state}
@@ -48,8 +59,8 @@ defmodule TimelessStack.UIDataSourceStatusesTest do
 
   describe "statuses/2" do
     test "maps error/warning/ok per host and :unknown for hostless elements", %{state: state} do
-      Process.put({:fake_hosts, :error}, ["bad-1"])
-      Process.put({:fake_hosts, :warning}, ["warn-1"])
+      Application.put_env(:timeless_stack, :fake_error_hosts, ["bad-1"])
+      Application.put_env(:timeless_stack, :fake_warning_hosts, ["warn-1"])
 
       elements = [
         element("e1", :server, %{"host" => "bad-1"}),
@@ -104,7 +115,7 @@ defmodule TimelessStack.UIDataSourceStatusesTest do
 
   describe "statuses_at/3" do
     test "bounds the window with :until and includes graph hosts", %{state: state} do
-      Process.put({:fake_hosts, :error}, ["web-1"])
+      Application.put_env(:timeless_stack, :fake_error_hosts, ["web-1"])
       time = DateTime.utc_now()
 
       elements = [
@@ -126,8 +137,8 @@ defmodule TimelessStack.UIDataSourceStatusesTest do
 
   describe "parity with per-element status" do
     test "batch and single status agree for one element", %{state: state} do
-      Process.put({:fake_hosts, :error}, ["bad-1"])
-      Process.put({:fake_hosts, :warning}, ["warn-1"])
+      Application.put_env(:timeless_stack, :fake_error_hosts, ["bad-1"])
+      Application.put_env(:timeless_stack, :fake_warning_hosts, ["warn-1"])
 
       for {host, expected} <- [{"bad-1", :error}, {"warn-1", :warning}, {"fine-1", :ok}] do
         el = element("single", :server, %{"host" => host})

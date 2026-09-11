@@ -57,6 +57,17 @@ defmodule TimelessStack.UIDataSourceTest do
     }
   end
 
+  defmodule MetadataMetrics do
+    def get_metadata(_store, _metric) do
+      Agent.update(Application.fetch_env!(:timeless_stack, :metadata_counter), &(&1 + 1))
+      {:ok, %{type: "counter64", unit: "bytes", description: nil}}
+    end
+
+    def query_aggregate_multi(_store, _metric, _labels, _opts) do
+      {:ok, [%{labels: %{}, data: [{1, 10.0}, {2, 30.0}]}]}
+    end
+  end
+
   describe "init/1" do
     test "initializes with metrics store" do
       assert {:ok, %{store: :test_metrics}} = UIDataSource.init(%{metrics_store: :test_metrics})
@@ -112,6 +123,33 @@ defmodule TimelessStack.UIDataSourceTest do
   end
 
   describe "metric_range/5" do
+    test "metric metadata is cached and drives counter conversion" do
+      {:ok, counter} = Agent.start_link(fn -> 0 end)
+      Application.put_env(:timeless_stack, :metadata_counter, counter)
+      on_exit(fn -> Application.delete_env(:timeless_stack, :metadata_counter) end)
+
+      table = :ets.new(:metadata_cache, [:set, :public])
+
+      {:ok, state} =
+        UIDataSource.init(%{
+          metrics_store: :external,
+          metrics_module: MetadataMetrics,
+          cache_table: table
+        })
+
+      element = make_graph_element("metadata-counter", %{"host" => "edge"})
+      from = DateTime.from_unix!(0)
+      to = DateTime.from_unix!(60)
+
+      assert UIDataSource.metric_range(state, element, "bytes_total", from, to) ==
+               {:ok, [{2_000, 20.0}]}
+
+      assert UIDataSource.metric_metadata(state, "bytes_total") ==
+               {:ok, %{type: "counter64", unit: "bytes", description: nil}}
+
+      assert Agent.get(counter, & &1) == 1
+    end
+
     test "canvas graph path returns stable 2 hour gauge buckets before and after flush",
          %{state: state} do
       metric = "canvas_round_trip_gauge"

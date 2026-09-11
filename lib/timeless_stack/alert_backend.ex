@@ -113,9 +113,9 @@ defmodule TimelessStack.AlertBackend do
   defp safely(fun) do
     fun.()
   rescue
-    error -> {:error, Exception.message(error)}
+    error -> {:error, {:alerting_unavailable, {:exception, error}}}
   catch
-    :exit, reason -> {:error, {:alerting_unavailable, reason}}
+    kind, reason -> {:error, {:alerting_unavailable, {kind, reason}}}
   end
 
   defp db do

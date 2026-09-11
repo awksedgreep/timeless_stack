@@ -9,6 +9,7 @@ defmodule TimelessStack.Application do
   def start(_type, _args) do
     children =
       [
+        {Task.Supervisor, name: TimelessStack.UIDataSource.Cache.TaskSupervisor},
         TimelessStack.UIDataSource.Cache
       ] ++ alerting_children()
 

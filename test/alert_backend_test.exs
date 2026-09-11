@@ -158,6 +158,7 @@ defmodule TimelessStack.AlertBackendTest do
       data_dir: @data_dir
     )
 
-    assert {:error, _reason} = AlertBackend.list_rules(graph(%{"metric_name" => "cpu_usage"}))
+    assert {:error, {:alerting_unavailable, _reason}} =
+             AlertBackend.list_rules(graph(%{"metric_name" => "cpu_usage"}))
   end
 end

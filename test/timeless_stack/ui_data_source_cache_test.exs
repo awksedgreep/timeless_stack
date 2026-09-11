@@ -20,6 +20,7 @@ defmodule TimelessStack.UIDataSource.CacheTest do
   end
 
   defp start_cache(opts \\ []) do
+    {wait_for_refresh?, opts} = Keyword.pop(opts, :wait_for_refresh, true)
     n = System.unique_integer([:positive])
     name = :"ui_cache_#{n}"
     table = :"ui_cache_table_#{n}"
@@ -27,9 +28,7 @@ defmodule TimelessStack.UIDataSource.CacheTest do
     opts = Keyword.merge([name: name, table: table, store: @store], opts)
     pid = start_supervised!(Supervisor.child_spec({Cache, opts}, id: name))
 
-    # Any GenServer call completes only after the initial refresh
-    # (handle_continue) has run.
-    :sys.get_state(pid)
+    if wait_for_refresh?, do: Cache.refresh(name)
     {name, table, pid}
   end
 
@@ -44,9 +43,9 @@ defmodule TimelessStack.UIDataSource.CacheTest do
     TimelessMetrics.write(@store, metric, labels, 1.0, timestamp: System.os_time(:second))
   end
 
-  # Casts sent from this process before a call are processed first, so a
-  # sync call after triggering an on-demand fetch makes it deterministic.
-  defp sync(pid), do: :sys.get_state(pid)
+  defp sync(pid) do
+    assert eventually(fn -> MapSet.size(:sys.get_state(pid).inflight) == 0 end)
+  end
 
   describe "refresh populates the cache" do
     test "list_hosts serves the host list from the initial refresh" do
@@ -178,6 +177,95 @@ defmodule TimelessStack.UIDataSource.CacheTest do
       sync(pid)
       assert Process.alive?(pid)
     end
+  end
+
+  defmodule BlockingMetrics do
+    def list_metrics(_store), do: {:ok, ["a", "b", "c"]}
+
+    def label_values(_store, metric, _label_key) do
+      test_pid = Application.fetch_env!(:timeless_stack, :blocking_metrics_test_pid)
+      send(test_pid, {:fetch_started, self(), metric})
+
+      receive do
+        :release -> {:ok, [metric]}
+      after
+        2_000 -> :error
+      end
+    end
+  end
+
+  describe "asynchronous bounded refresh" do
+    test "fan-out is concurrent and does not block the cache mailbox" do
+      Application.put_env(:timeless_stack, :blocking_metrics_test_pid, self())
+      on_exit(fn -> Application.delete_env(:timeless_stack, :blocking_metrics_test_pid) end)
+
+      {name, table, pid} =
+        start_cache(
+          metrics_module: BlockingMetrics,
+          fetch_concurrency: 3,
+          wait_for_refresh: false
+        )
+
+      fetches =
+        for _ <- 1..3 do
+          assert_receive {:fetch_started, fetch_pid, metric}, 500
+          {fetch_pid, metric}
+        end
+
+      assert MapSet.new(Enum.map(fetches, &elem(&1, 1))) == MapSet.new(["a", "b", "c"])
+
+      # The worker calls are still blocked, but the GenServer remains responsive.
+      assert %{inflight: inflight} = :sys.get_state(pid, 100)
+      assert MapSet.member?(inflight, {:label_values, "host"})
+
+      Enum.each(fetches, fn {fetch_pid, _metric} -> send(fetch_pid, :release) end)
+      assert :ok = Cache.refresh(name)
+      assert Cache.get(table, {:label_values, "host"}) == {:ok, ["a", "b", "c"]}
+    end
+
+    test "a failed cold series fetch stays unloaded and does not announce success" do
+      {name, table, pid} =
+        start_cache(metrics_module: __MODULE__.FailingMetrics, wait_for_refresh: false)
+
+      Phoenix.PubSub.subscribe(
+        TimelessCanvas.pubsub(),
+        TimelessCanvas.DataSource.Manager.series_topic()
+      )
+
+      Cache.ensure(name, {:host_series, "missing"})
+
+      assert eventually(fn ->
+               not MapSet.member?(:sys.get_state(pid).inflight, {:host_series, "missing"})
+             end)
+
+      assert Cache.get(table, {:host_series, "missing"}) == :miss
+      refute_receive {:series_loaded, "missing"}, 100
+    end
+  end
+
+  describe "tracked-key eviction" do
+    test "inactive custom label keys stop refreshing and leave the cache" do
+      write_metric("cpu_usage", %{"host" => "web-1", "region" => "us-east"})
+      TimelessMetrics.flush(@store)
+
+      {name, table, pid} = start_cache(ttl: 60_000, label_evict_after: 5)
+      state = ds_state(name, table)
+
+      assert UIDataSource.list_label_values(state, "region") == []
+      sync(pid)
+      assert Cache.get(table, {:label_values, "region"}) == {:ok, ["us-east"]}
+
+      Process.sleep(10)
+      send(pid, :tick)
+      sync(pid)
+
+      refute Map.has_key?(:sys.get_state(pid).label_keys, "region")
+      assert Cache.get(table, {:label_values, "region"}) == :miss
+    end
+  end
+
+  defmodule FailingMetrics do
+    def list_metrics(_store), do: {:error, :unavailable}
   end
 
   defp eventually(fun, attempts \\ 50) do

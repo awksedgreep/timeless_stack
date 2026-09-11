@@ -27,7 +27,8 @@ defmodule TimelessStack.UIDataSource do
        store: store,
        metrics_module: metrics_module,
        cache_name: cache_name,
-       cache_table: cache_table
+       cache_table: cache_table,
+       metadata_ttl: Map.get(config, :metadata_ttl, 60_000)
      }}
   end
 
@@ -47,12 +48,8 @@ defmodule TimelessStack.UIDataSource do
   def metric(state, element, metric_name) do
     labels = build_labels(element)
 
-    case state.metrics_module.query_multi(state.store, metric_name, labels,
-           from: DateTime.to_unix(DateTime.add(DateTime.utc_now(), -300, :second)),
-           to: DateTime.to_unix(DateTime.utc_now())
-         ) do
-      {:ok, [%{points: [_ | _] = points} | _]} ->
-        {_ts, value} = List.last(points)
+    case latest_metric(state, metric_name, labels) do
+      {:ok, [%{value: value} | _]} ->
         {:ok, value}
 
       _ ->
@@ -75,9 +72,14 @@ defmodule TimelessStack.UIDataSource do
     from = DateTime.to_unix(DateTime.add(time, -5, :second))
     to = DateTime.to_unix(time)
 
-    case state.metrics_module.query_multi(state.store, metric_name, labels, from: from, to: to) do
-      {:ok, [%{points: [_ | _] = points} | _]} ->
-        {_ts, value} = List.last(points)
+    case state.metrics_module.query_aggregate_multi(state.store, metric_name, labels,
+           from: from,
+           to: to,
+           bucket: {5, :seconds},
+           aggregate: :last
+         ) do
+      {:ok, [%{data: [_ | _] = points} | _]} ->
+        {_timestamp, value} = List.last(points)
         {:ok, value}
 
       _ ->
@@ -173,7 +175,7 @@ defmodule TimelessStack.UIDataSource do
 
   @impl true
   def metric_metadata(state, metric_name) do
-    state.metrics_module.get_metadata(state.store, metric_name)
+    cached_metric_metadata(state, metric_name)
   end
 
   @impl true
@@ -367,7 +369,7 @@ defmodule TimelessStack.UIDataSource do
   end
 
   defp counter_metric_from_metadata?(state, metric_name) do
-    case state.metrics_module.get_metadata(state.store, metric_name) do
+    case cached_metric_metadata(state, metric_name) do
       {:ok, %{type: type}} when type in ["counter32", "counter64", :counter32, :counter64] ->
         true
 
@@ -391,16 +393,72 @@ defmodule TimelessStack.UIDataSource do
         do: Keyword.put(base_filters, :until, DateTime.to_unix(until_dt)),
         else: base_filters
 
-    # Check for errors first
-    case logs_mod().query([{:level, :error} | base_filters]) do
-      {:ok, %{entries: [_ | _]}} ->
-        :error
+    module = logs_mod()
 
-      _ ->
-        # Check for warnings
-        case logs_mod().query([{:level, :warning} | base_filters]) do
-          {:ok, %{entries: [_ | _]}} -> :warning
-          _ -> :ok
+    present_levels =
+      [:error, :warning]
+      |> Task.async_stream(
+        fn level -> {level, module.query([{:level, level} | base_filters])} end,
+        max_concurrency: 2,
+        ordered: false,
+        timeout: Application.get_env(:timeless_stack, :status_query_timeout, 30_000),
+        on_timeout: :kill_task
+      )
+      |> Enum.reduce(MapSet.new(), fn
+        {:ok, {level, {:ok, %{entries: [_ | _]}}}}, levels -> MapSet.put(levels, level)
+        _result, levels -> levels
+      end)
+
+    cond do
+      MapSet.member?(present_levels, :error) -> :error
+      MapSet.member?(present_levels, :warning) -> :warning
+      true -> :ok
+    end
+  end
+
+  defp latest_metric(state, metric_name, labels) do
+    if Code.ensure_loaded?(state.metrics_module) and
+         function_exported?(state.metrics_module, :latest_multi, 3) do
+      state.metrics_module.latest_multi(state.store, metric_name, labels)
+    else
+      now = DateTime.utc_now()
+
+      case state.metrics_module.query_multi(state.store, metric_name, labels,
+             from: DateTime.to_unix(DateTime.add(now, -300, :second)),
+             to: DateTime.to_unix(now)
+           ) do
+        {:ok, series} ->
+          {:ok,
+           Enum.flat_map(series, fn
+             %{labels: labels, points: [_ | _] = points} ->
+               {timestamp, value} = List.last(points)
+               [%{labels: labels, timestamp: timestamp, value: value}]
+
+             _row ->
+               []
+           end)}
+
+        {:error, _reason} = error ->
+          error
+      end
+    end
+  end
+
+  defp cached_metric_metadata(state, metric_name) do
+    key = {:metric_metadata, state.metrics_module, state.store, metric_name}
+
+    case Cache.get_fresh(state.cache_table, key, state.metadata_ttl) do
+      {:ok, metadata} ->
+        {:ok, metadata}
+
+      :miss ->
+        case state.metrics_module.get_metadata(state.store, metric_name) do
+          {:ok, metadata} = result ->
+            Cache.put(state.cache_table, key, metadata)
+            result
+
+          {:error, _reason} = error ->
+            error
         end
     end
   end

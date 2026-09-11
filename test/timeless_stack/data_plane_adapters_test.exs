@@ -3,6 +3,24 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
 
   alias TimelessStack.{LogsDataPlane, MetricsDataPlane, TracesExporter}
 
+  defmodule FanoutBarrier do
+    def wait(signal, operation) do
+      case Application.get_env(:timeless_stack, :fanout_test_pid) do
+        pid when is_pid(pid) ->
+          send(pid, {:fanout_started, self(), signal, operation})
+
+          receive do
+            :release_fanout -> :ok
+          after
+            2_000 -> raise "fan-out test was not released"
+          end
+
+        _ ->
+          :ok
+      end
+    end
+  end
+
   defmodule BackupSQLite do
     def signal(destination, signal) do
       {:ok, connection} = Exqlite.Sqlite3.open(destination)
@@ -62,11 +80,31 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
        }}
     end
 
+    def latest(metric, labels) do
+      send(self(), {:metrics_latest, metric, labels})
+      {:ok, %{"labels" => labels, "timestamp" => 20, "value" => 2.5}}
+    end
+
     def label_values("__name__"), do: {:ok, ["cpu"]}
+    def label_values("host"), do: {:ok, ["edge"]}
     def label_values("host", %{"metric" => "cpu"}), do: {:ok, ["edge"]}
+    def label_values("type", %{"metric" => "cpu"}), do: {:ok, ["counter64"]}
     def series("cpu"), do: {:ok, [%{"labels" => %{"host" => "edge"}}]}
-    def stats, do: {:ok, %{"oldest_timestamp_seconds" => 10, "newest_timestamp_seconds" => 20}}
-    def flush, do: {:ok, %{"completed_points" => 2}}
+
+    def request_json(:get, "/api/v1/series", opts) do
+      send(self(), {:metrics_series_matching, opts})
+      {:ok, %{"status" => "success", "data" => [%{"__name__" => "cpu", "host" => "edge"}]}}
+    end
+
+    def stats do
+      TimelessStack.DataPlaneAdaptersTest.FanoutBarrier.wait(:metrics, :info)
+      {:ok, %{"oldest_timestamp_seconds" => 10, "newest_timestamp_seconds" => 20}}
+    end
+
+    def flush do
+      TimelessStack.DataPlaneAdaptersTest.FanoutBarrier.wait(:metrics, :flush)
+      {:ok, %{"completed_points" => 2}}
+    end
 
     def backup(destination, _opts) do
       :ok = BackupSQLite.signal(destination, "metrics")
@@ -96,8 +134,16 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
       {:ok, [%{"value" => "edge"}]}
     end
 
-    def stats, do: {:ok, %{entries: 1}}
-    def flush, do: {:ok, %{completed_entries: 1}}
+    def stats do
+      TimelessStack.DataPlaneAdaptersTest.FanoutBarrier.wait(:logs, :info)
+      {:ok, %{entries: 1}}
+    end
+
+    def flush do
+      TimelessStack.DataPlaneAdaptersTest.FanoutBarrier.wait(:logs, :flush)
+      {:ok, %{completed_entries: 1}}
+    end
+
     def ingest(entries), do: {:ok, length(entries)}
 
     def backup(destination, _opts) do
@@ -121,8 +167,15 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
       {:ok, %{}}
     end
 
-    def stats, do: {:ok, %{"total_spans" => 1}}
-    def flush, do: {:ok, %{"completed_spans" => 1}}
+    def stats do
+      TimelessStack.DataPlaneAdaptersTest.FanoutBarrier.wait(:traces, :info)
+      {:ok, %{"total_spans" => 1}}
+    end
+
+    def flush do
+      TimelessStack.DataPlaneAdaptersTest.FanoutBarrier.wait(:traces, :flush)
+      {:ok, %{"completed_spans" => 1}}
+    end
 
     def backup(destination, _opts) do
       :ok = BackupSQLite.signal(destination, "traces")
@@ -173,7 +226,52 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
 
     assert {:ok, ["cpu"]} = MetricsDataPlane.list_metrics(:ignored)
     assert {:ok, ["edge"]} = MetricsDataPlane.label_values(:ignored, "cpu", "host")
+    assert {:ok, ["edge"]} = MetricsDataPlane.list_label_values(:ignored, "host")
     assert {:ok, [%{labels: %{"host" => "edge"}}]} = MetricsDataPlane.list_series(:ignored, "cpu")
+
+    assert {:ok, [%{metric: "cpu", labels: %{"host" => "edge"}}]} =
+             MetricsDataPlane.list_series_matching(:ignored, %{"host" => "edge"})
+
+    assert_received {:metrics_series_matching, opts}
+    assert opts[:params]["match[]"] == ~s({host="edge"})
+
+    assert {:ok, [%{timestamp: 20, value: 2.5}]} =
+             MetricsDataPlane.latest_multi(:ignored, "cpu", %{"host" => "edge"})
+
+    assert {:ok, %{type: "counter64"}} = MetricsDataPlane.get_metadata(:ignored, "cpu")
+  end
+
+  test "metrics adapter rejects an unsupported bucket without raising" do
+    assert {:error, {:unsupported_metrics_bucket, {1, :minutes}}} =
+             MetricsDataPlane.query_aggregate_multi(:ignored, "cpu", %{},
+               from: 10,
+               to: 20,
+               bucket: {1, :minutes}
+             )
+  end
+
+  test "info and flush start all three signal calls concurrently" do
+    previous_mode = Application.get_env(:timeless_stack, :data_plane_mode)
+    Application.put_env(:timeless_stack, :data_plane_mode, :rust)
+    Application.put_env(:timeless_stack, :fanout_test_pid, self())
+
+    on_exit(fn ->
+      restore(:data_plane_mode, previous_mode)
+      Application.delete_env(:timeless_stack, :fanout_test_pid)
+    end)
+
+    info = Task.async(&TimelessStack.info/0)
+    release_all_fanout(:info)
+
+    assert %{
+             metrics: %{oldest_timestamp: 10, newest_timestamp: 20},
+             logs: %{entries: 1},
+             traces: %{"total_spans" => 1}
+           } = Task.await(info)
+
+    flush = Task.async(&TimelessStack.flush/0)
+    release_all_fanout(:flush)
+    assert :ok = Task.await(flush)
   end
 
   test "logs adapter maps only declared indexed metadata and time filters" do
@@ -325,6 +423,7 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
     assert :ok = TracesExporter.export(table, resource, state)
     assert_receive {:otlp, body, opts}
     assert opts[:format] == :protobuf
+    assert opts[:timeout] == 8_000
 
     decoded =
       :opentelemetry_exporter_trace_service_pb.decode_msg(
@@ -341,6 +440,17 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
     assert decoded_span.name == "POST /checkout"
     assert decoded_span.status.message == "declined"
     assert length(decoded_span.events) == 1
+  end
+
+  defp release_all_fanout(operation) do
+    started =
+      for _ <- 1..3 do
+        assert_receive {:fanout_started, pid, signal, ^operation}, 500
+        {pid, signal}
+      end
+
+    assert MapSet.new(Enum.map(started, &elem(&1, 1))) == MapSet.new([:metrics, :logs, :traces])
+    Enum.each(started, fn {pid, _signal} -> send(pid, :release_fanout) end)
   end
 
   defp restore(key, nil), do: Application.delete_env(:timeless_stack, key)

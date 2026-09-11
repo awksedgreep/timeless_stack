@@ -59,39 +59,44 @@ defmodule TimelessStack do
   Returns aggregated info/stats from all three services.
   """
   def info do
-    if data_plane_mode() == :rust do
-      %{
-        metrics: TimelessStack.MetricsDataPlane.info(:timeless_metrics),
-        logs: unwrap(TimelessStack.LogsDataPlane.stats()),
-        traces: unwrap(TimelessStack.TracesDataPlane.stats())
-      }
-    else
-      %{
-        metrics: TimelessMetrics.info(:timeless_metrics),
-        logs: TimelessLogs.stats(),
-        traces: TimelessTraces.stats()
-      }
-    end
+    operations =
+      if data_plane_mode() == :rust do
+        [
+          metrics: fn -> TimelessStack.MetricsDataPlane.info(:timeless_metrics) end,
+          logs: fn -> unwrap(TimelessStack.LogsDataPlane.stats()) end,
+          traces: fn -> unwrap(TimelessStack.TracesDataPlane.stats()) end
+        ]
+      else
+        [
+          metrics: fn -> TimelessMetrics.info(:timeless_metrics) end,
+          logs: fn -> TimelessLogs.stats() end,
+          traces: fn -> TimelessTraces.stats() end
+        ]
+      end
+
+    fan_out(operations, fn reason -> %{error: reason} end)
   end
 
   @doc """
   Flushes all three services' buffers to disk.
   """
   def flush do
-    results =
+    operations =
       if data_plane_mode() == :rust do
-        %{
-          metrics: TimelessStack.MetricsDataPlane.flush(:timeless_metrics),
-          logs: TimelessStack.LogsDataPlane.flush(),
-          traces: TimelessStack.TracesDataPlane.flush()
-        }
+        [
+          metrics: fn -> TimelessStack.MetricsDataPlane.flush(:timeless_metrics) end,
+          logs: fn -> TimelessStack.LogsDataPlane.flush() end,
+          traces: fn -> TimelessStack.TracesDataPlane.flush() end
+        ]
       else
-        %{
-          metrics: TimelessMetrics.flush(:timeless_metrics),
-          logs: TimelessLogs.flush(),
-          traces: TimelessTraces.flush()
-        }
+        [
+          metrics: fn -> TimelessMetrics.flush(:timeless_metrics) end,
+          logs: fn -> TimelessLogs.flush() end,
+          traces: fn -> TimelessTraces.flush() end
+        ]
       end
+
+    results = fan_out(operations, &{:error, &1})
 
     failures = Map.reject(results, fn {_signal, result} -> success?(result) end)
     if map_size(failures) == 0, do: :ok, else: {:error, failures}
@@ -103,4 +108,40 @@ defmodule TimelessStack do
   defp success?(:ok), do: true
   defp success?({:ok, _result}), do: true
   defp success?(_result), do: false
+
+  defp fan_out(operations, on_failure) do
+    timeout = Application.get_env(:timeless_stack, :signal_fanout_timeout, 35_000)
+
+    results =
+      Task.async_stream(
+        operations,
+        fn {signal, operation} -> {signal, safely_call(operation)} end,
+        max_concurrency: length(operations),
+        ordered: true,
+        timeout: timeout,
+        on_timeout: :kill_task
+      )
+      |> Enum.to_list()
+
+    operations
+    |> Enum.zip(results)
+    |> Map.new(fn
+      {{signal, _operation}, {:ok, {signal, {:ok, result}}}} ->
+        {signal, result}
+
+      {{signal, _operation}, {:ok, {signal, {:error, reason}}}} ->
+        {signal, on_failure.(reason)}
+
+      {{signal, _operation}, {:exit, reason}} ->
+        {signal, on_failure.({:signal_call_failed, reason})}
+    end)
+  end
+
+  defp safely_call(operation) do
+    {:ok, operation.()}
+  rescue
+    error -> {:error, {:exception, error}}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
 end

@@ -104,7 +104,12 @@ config :timeless_canvas, :stream_backends,
 # Route TimelessUI's own spans into TimelessTraces
 config :opentelemetry,
   resource: [service: [name: "timeless_ui"]],
-  traces_exporter: {TimelessStack.TracesExporter, []}
+  traces_exporter: {TimelessStack.TracesExporter, []},
+  # Exporting runs outside request processes. Keep its failure domain explicit:
+  # the queue is bounded and the processor kills a stuck export after 10s.
+  bsp_scheduled_delay_ms: 5_000,
+  bsp_exporting_timeout_ms: 10_000,
+  bsp_max_queue_size: 2_048
 
 config :timeless_stack,
   timeless_metrics_module: TimelessStack.MetricsDataPlane,
