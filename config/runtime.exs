@@ -62,6 +62,21 @@ if config_env() == :prod do
   metrics_retention_raw =
     System.get_env("TIMELESS_METRICS_RETENTION_RAW", "7") |> String.to_integer()
 
+  # The Rust metrics plane takes raw-retention seconds. Prefer an explicit
+  # seconds override; otherwise derive it from the day-based stack knob so the
+  # two settings cannot silently disagree.
+  metrics_raw_retention_secs =
+    case System.get_env("TIMELESS_METRICS_RAW_RETENTION_SECS") do
+      nil -> metrics_retention_raw * 86_400
+      value -> String.to_integer(value)
+    end
+
+  # Persisted rollup ladder for the Rust metrics plane. timeless-libsql 0.8.4+
+  # creates new databases with no rollups unless this is set, which would leave
+  # raw as the only retained form. Set `none` to disable downsampling.
+  metrics_rollups =
+    System.get_env("TIMELESS_METRICS_ROLLUPS", "1h@30d,1d@365d,30d@forever")
+
   logs_retention_age =
     System.get_env("TIMELESS_LOGS_RETENTION_AGE", "604800") |> String.to_integer()
 
@@ -134,6 +149,14 @@ if config_env() == :prod do
       retention_max_age: traces_retention_age,
       retention_max_size: traces_retention_size
 
+    metrics_env =
+      telemetry_bind_env
+      |> Map.put(
+        "TIMELESS_METRICS_RAW_RETENTION_SECS",
+        Integer.to_string(metrics_raw_retention_secs)
+      )
+      |> Map.put("TIMELESS_METRICS_ROLLUPS", metrics_rollups)
+
     config :timeless_ui, :telemetry_data_planes, [
       [
         signal: :metrics,
@@ -146,7 +169,7 @@ if config_env() == :prod do
         auth_mode: data_plane_auth,
         auth_policy_path: Path.join(auth_dir, "metrics.json"),
         tenant: tenant,
-        env: telemetry_bind_env
+        env: metrics_env
       ],
       [
         signal: :logs,
