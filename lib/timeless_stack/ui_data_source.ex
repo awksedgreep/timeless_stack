@@ -13,6 +13,7 @@ defmodule TimelessStack.UIDataSource do
 
   @behaviour TimelessCanvas.DataSource
 
+  alias TimelessCanvas.Canvas.Element
   alias TimelessStack.UIDataSource.Cache
 
   @impl true
@@ -278,33 +279,10 @@ defmodule TimelessStack.UIDataSource do
   """
   def element_labels(element), do: build_labels(element)
 
-  defp build_labels(element) do
-    meta = element.meta || %{}
-    series_label_key = meta["series_label_key"]
-    series_label_value = meta["series_label_value"]
-
-    series_filter =
-      if is_binary(series_label_key) and series_label_key != "" and
-           is_binary(series_label_value) and series_label_value != "" do
-        %{series_label_key => series_label_value}
-      else
-        %{}
-      end
-
-    meta
-    |> Map.drop([
-      "metric_name",
-      "series_label_key",
-      "series_label_value",
-      "y_min",
-      "y_max",
-      "icon",
-      "os_icon"
-    ])
-    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
-    |> Map.new()
-    |> Map.merge(series_filter)
-  end
+  # The canvas says which of an element's fields are labels; a list kept
+  # here fell behind it, and a field that configures the element was sent
+  # to the store as a label that matched nothing.
+  defp build_labels(element), do: Element.query_labels(element)
 
   defp gauge_metric_range(state, metric_name, labels, from_ts, to_ts, bucket_seconds) do
     case state.metrics_module.query_aggregate_multi(state.store, metric_name, labels,

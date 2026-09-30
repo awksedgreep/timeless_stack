@@ -92,6 +92,29 @@ defmodule TimelessStack.UIDataSourceTest do
       assert {:ok, 73.5} = UIDataSource.metric(state, element, "cpu_usage")
     end
 
+    test "an element's fields that configure it are not labels", %{state: state} do
+      TimelessMetrics.write(:test_metrics, "cpu", %{"host" => "web-01"}, 42.0)
+
+      element =
+        make_graph_element("g", %{
+          "metric_name" => "cpu",
+          "host" => "web-01",
+          "aggregate" => "sum",
+          "label_filter" => "kind!=slice",
+          "window" => "30",
+          "group_by" => "comm",
+          "limit" => "5",
+          "order" => "desc",
+          "y_max" => "100",
+          "icon" => "server",
+          # Filled in and then emptied: not a label, and not `key=""`.
+          "ifname" => ""
+        })
+
+      assert UIDataSource.element_labels(element) == %{"host" => "web-01"}
+      assert {:ok, 42.0} = UIDataSource.metric(state, element, "cpu")
+    end
+
     test "returns :no_data when no metric exists", %{state: state} do
       element = make_element("el-1", %{"host" => "nonexistent"})
       assert :no_data = UIDataSource.metric(state, element, "no_such_metric")
