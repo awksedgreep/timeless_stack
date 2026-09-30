@@ -20,6 +20,20 @@ defmodule TimelessStack.UIDataSource.Cache do
   cached values are kept and a cold failure remains a miss. Failures are
   retried after the TTL and never produce a false `series_loaded` broadcast.
 
+  ## What a host's series are
+
+  A store keeps every series a host has ever had, and a collector that
+  gives each process series of its own makes that the processes there have
+  been, growing by the hour. Where the metrics module can say which series
+  have reported lately (`list_series_reporting/3`, as the Rust plane's
+  adapter does), a host's series are those that reported in the last
+  `:series_window_seconds` (default 120); where the plane will not count
+  that many, those that reported in the last `:lookback_seconds` (default
+  30, or `config :timeless_stack, :canvas_lookback_seconds`); and failing
+  both, every series the store has. Whatever they are, at most
+  `:host_series_limit` of them (default 10,000) are kept, and a cut is
+  logged.
+
   Configuration (app env, overridable per-instance via `start_link/1`
   options with the same keys):
 
@@ -29,6 +43,8 @@ defmodule TimelessStack.UIDataSource.Cache do
         host_series_ttl: 60_000,
         host_series_evict_after: 600_000,
         label_evict_after: 600_000,
+        series_window_seconds: 120,
+        host_series_limit: 10_000,
         fetch_concurrency: 16,
         fetch_timeout: 30_000
 
@@ -39,10 +55,14 @@ defmodule TimelessStack.UIDataSource.Cache do
 
   use GenServer
 
+  require Logger
+
   @default_table :timeless_stack_ui_cache
   @default_ttl 60_000
   @default_host_series_ttl 60_000
   @default_evict_after 600_000
+  @default_series_window_seconds 120
+  @default_host_series_limit 10_000
 
   @type cache_key ::
           {:label_values, String.t()}
@@ -136,6 +156,13 @@ defmodule TimelessStack.UIDataSource.Cache do
       host_series_ttl: opt.(:host_series_ttl, @default_host_series_ttl),
       evict_after: opt.(:host_series_evict_after, @default_evict_after),
       label_evict_after: opt.(:label_evict_after, @default_evict_after),
+      series_window_seconds: opt.(:series_window_seconds, @default_series_window_seconds),
+      lookback_seconds:
+        opt.(
+          :lookback_seconds,
+          Application.get_env(:timeless_stack, :canvas_lookback_seconds, 30)
+        ),
+      host_series_limit: opt.(:host_series_limit, @default_host_series_limit),
       fetch_concurrency: opt.(:fetch_concurrency, 16),
       fetch_timeout: opt.(:fetch_timeout, 30_000),
       task_supervisor: opt.(:task_supervisor, TimelessStack.UIDataSource.Cache.TaskSupervisor),
@@ -245,14 +272,20 @@ defmodule TimelessStack.UIDataSource.Cache do
     if MapSet.member?(state.inflight, key) do
       state
     else
-      metrics_module = state.metrics_module
-      store = state.store
-      concurrency = state.fetch_concurrency
-      timeout = state.fetch_timeout
+      fetch_opts =
+        Map.take(state, [
+          :metrics_module,
+          :store,
+          :fetch_concurrency,
+          :fetch_timeout,
+          :series_window_seconds,
+          :lookback_seconds,
+          :host_series_limit
+        ])
 
       task =
         Task.Supervisor.async_nolink(state.task_supervisor, fn ->
-          fetch(key, metrics_module, store, concurrency, timeout)
+          fetch(key, fetch_opts)
         end)
 
       %{
@@ -371,13 +404,76 @@ defmodule TimelessStack.UIDataSource.Cache do
     end
   end
 
-  defp fetch({:label_values, label_key}, metrics_module, store, concurrency, timeout) do
-    fetch_label_values(metrics_module, store, label_key, concurrency, timeout)
+  defp fetch({:label_values, label_key}, opts) do
+    fetch_label_values(
+      opts.metrics_module,
+      opts.store,
+      label_key,
+      opts.fetch_concurrency,
+      opts.fetch_timeout
+    )
   end
 
-  defp fetch({:host_series, host}, metrics_module, store, concurrency, timeout) do
-    fetch_host_series(metrics_module, store, host, concurrency, timeout)
+  defp fetch({:host_series, host}, opts) do
+    with {:ok, series} <- fetch_host_series(opts, host) do
+      {:ok, bound_host_series(series, host, opts.host_series_limit)}
+    end
   end
+
+  # The series that have reported lately, where the metrics module can say;
+  # every series the store has where it cannot, or where the plane refused
+  # to count so many. A refusal is not a failure of the store, so it is not
+  # a miss: the wider list answers.
+  defp fetch_host_series(opts, host) do
+    %{metrics_module: metrics_module, store: store} = opts
+
+    if Code.ensure_loaded?(metrics_module) and
+         function_exported?(metrics_module, :list_series_reporting, 3) do
+      opts
+      |> series_windows()
+      |> Enum.find_value(fn window ->
+        case metrics_module.list_series_reporting(store, %{"host" => host}, window) do
+          {:ok, series} when is_list(series) -> {:ok, host_series(series)}
+          _other -> nil
+        end
+      end)
+      |> case do
+        {:ok, series} -> {:ok, series}
+        nil -> fetch_all_host_series(metrics_module, store, host, opts)
+      end
+    else
+      fetch_all_host_series(metrics_module, store, host, opts)
+    end
+  rescue
+    _ -> :error
+  catch
+    :exit, _ -> :error
+  end
+
+  defp series_windows(%{series_window_seconds: window, lookback_seconds: lookback}) do
+    [window, lookback]
+    |> Enum.filter(&(is_integer(&1) and &1 > 0))
+    |> Enum.sort(:desc)
+    |> Enum.uniq()
+  end
+
+  defp host_series(series),
+    do: Enum.map(series, fn %{metric: metric, labels: labels} -> {metric, labels} end)
+
+  defp bound_host_series(series, host, limit) when is_integer(limit) and limit > 0 do
+    if length(series) > limit do
+      Logger.warning(
+        "UI series cache keeps #{limit} of #{length(series)} series for host #{inspect(host)}; " <>
+          "raise :host_series_limit, or narrow :series_window_seconds"
+      )
+
+      series |> Enum.sort() |> Enum.take(limit)
+    else
+      series
+    end
+  end
+
+  defp bound_host_series(series, _host, _limit), do: series
 
   # Bounded enumeration: one label_values/list_series store call per metric
   # name, executed concurrently inside a task and reduced immediately.
@@ -405,15 +501,14 @@ defmodule TimelessStack.UIDataSource.Cache do
     :exit, _ -> :error
   end
 
-  defp fetch_host_series(metrics_module, store, host, concurrency, timeout) do
+  defp fetch_all_host_series(metrics_module, store, host, opts) do
+    %{fetch_concurrency: concurrency, fetch_timeout: timeout} = opts
+
     if Code.ensure_loaded?(metrics_module) and
          function_exported?(metrics_module, :list_series_matching, 2) do
       case metrics_module.list_series_matching(store, %{"host" => host}) do
-        {:ok, series} when is_list(series) ->
-          {:ok, Enum.map(series, fn %{metric: metric, labels: labels} -> {metric, labels} end)}
-
-        _ ->
-          :error
+        {:ok, series} when is_list(series) -> {:ok, host_series(series)}
+        _ -> :error
       end
     else
       with {:ok, metric_names} when is_list(metric_names) <- metrics_module.list_metrics(store),

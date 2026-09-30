@@ -9,10 +9,23 @@ defmodule TimelessStack.UIDataSource do
         module: TimelessStack.UIDataSource,
         config: %{metrics_store: :timeless_metrics},
         poll_interval: 5_000
+
+  ## Ranking and combining series
+
+  `top_series/5` and `metric_range/6` are what offer the canvas its `top_n`
+  element and its graph aggregate. Through the Rust plane they are PromQL
+  queries; through `TimelessMetrics` in the node they are read per series
+  and combined here.
+
+  Both read at most `:lookback_seconds` back for a series' present value
+  (default 30, or `config :timeless_stack, :canvas_lookback_seconds`)
+  unless the element sets a `window`. A store's own lookback is often five
+  minutes, which counts a process for five minutes after it has ended.
   """
 
   @behaviour TimelessCanvas.DataSource
 
+  alias TimelessCanvas.Canvas.Element
   alias TimelessStack.UIDataSource.Cache
 
   @impl true
@@ -28,7 +41,13 @@ defmodule TimelessStack.UIDataSource do
        metrics_module: metrics_module,
        cache_name: cache_name,
        cache_table: cache_table,
-       metadata_ttl: Map.get(config, :metadata_ttl, 60_000)
+       metadata_ttl: Map.get(config, :metadata_ttl, 60_000),
+       lookback_seconds:
+         Map.get(
+           config,
+           :lookback_seconds,
+           Application.get_env(:timeless_stack, :canvas_lookback_seconds, 30)
+         )
      }}
   end
 
@@ -103,6 +122,162 @@ defmodule TimelessStack.UIDataSource do
   end
 
   @impl true
+  def metric_range(state, element, metric_name, %DateTime{} = from, %DateTime{} = to, opts) do
+    matchers = Element.query_matchers(element)
+    from_ts = DateTime.to_unix(from)
+    to_ts = DateTime.to_unix(to)
+    bucket_seconds = graph_bucket_seconds(from_ts, to_ts)
+    {from_ts, to_ts} = align_graph_window(from_ts, to_ts, bucket_seconds)
+    counter? = counter_metric?(state, element, metric_name)
+
+    query_opts = [
+      aggregate: opts[:aggregate],
+      lookback_delta: opts[:window] || state.lookback_seconds,
+      counter?: counter?,
+      step: bucket_seconds
+    ]
+
+    if function_exported?(state.metrics_module, :range_matched, 6) do
+      with {:ok, series} <-
+             state.metrics_module.range_matched(
+               state.store,
+               metric_name,
+               matchers,
+               from_ts,
+               to_ts,
+               query_opts
+             ) do
+        # Combined there is one series or none; not combined, the first
+        # series the labels match, as metric_range/5 draws.
+        {:ok, series |> Enum.map(& &1.points) |> List.first([])}
+      end
+    else
+      legacy_range_matched(
+        state,
+        metric_name,
+        matchers,
+        from_ts,
+        to_ts,
+        bucket_seconds,
+        query_opts
+      )
+    end
+  end
+
+  @impl true
+  def top_series(state, element, metric_name, %DateTime{} = time, opts) do
+    matchers = Element.query_matchers(element)
+    lookback = opts[:window] || state.lookback_seconds
+    counter? = counter_metric?(state, element, metric_name)
+    query_opts = Keyword.merge(opts, lookback_delta: lookback, counter?: counter?)
+
+    if function_exported?(state.metrics_module, :top_series, 5) do
+      state.metrics_module.top_series(
+        state.store,
+        metric_name,
+        matchers,
+        DateTime.to_unix(time),
+        query_opts
+      )
+    else
+      legacy_top_series(state, metric_name, matchers, DateTime.to_unix(time), query_opts)
+    end
+  end
+
+  # --- TimelessMetrics in the node: read per series, combine here ---
+
+  # Every series the equality labels match, as `[%{labels, data}]`, and then
+  # only those the whole matcher list allows: what equality cannot say is
+  # said here.
+  defp legacy_matched_series(state, metric_name, matchers, from_ts, to_ts, bucket, aggregate) do
+    labels = for {key, :eq, [value]} <- matchers, into: %{}, do: {key, value}
+
+    case state.metrics_module.query_aggregate_multi(state.store, metric_name, labels,
+           from: from_ts,
+           to: to_ts,
+           bucket: {bucket, :seconds},
+           aggregate: aggregate
+         ) do
+      {:ok, series} when is_list(series) ->
+        {:ok, Enum.filter(series, &Element.matches?(&1.labels, matchers))}
+
+      {:error, _reason} = error ->
+        error
+
+      _other ->
+        {:ok, []}
+    end
+  end
+
+  defp legacy_top_series(state, metric_name, matchers, time, opts) do
+    lookback = Keyword.fetch!(opts, :lookback_delta)
+    # One bucket the width of the lookback: a series' value at `time` is
+    # its last sample in it; a counter's is what it rose by a second.
+    aggregate = if opts[:counter?], do: :rate, else: :last
+
+    with {:ok, series} <-
+           legacy_matched_series(
+             state,
+             metric_name,
+             matchers,
+             time - lookback,
+             time,
+             lookback,
+             aggregate
+           ) do
+      values =
+        for %{labels: labels, data: [_ | _] = points} <- series do
+          {_ts, value} = List.last(points)
+          {labels, value / 1}
+        end
+
+      rows =
+        case Keyword.get(opts, :group_by, []) do
+          [] ->
+            Enum.map(values, fn {labels, value} -> %{labels: labels, value: value} end)
+
+          keys ->
+            values
+            |> Enum.group_by(fn {labels, _} -> Map.take(labels, keys) end, &elem(&1, 1))
+            |> Enum.map(fn {group, group_values} ->
+              %{labels: group, value: combine(group_values, Keyword.get(opts, :aggregate, :sum))}
+            end)
+        end
+
+      order = if Keyword.get(opts, :order) == :asc, do: :asc, else: :desc
+
+      {:ok, rows |> Enum.sort_by(& &1.value, order) |> Enum.take(Keyword.get(opts, :limit, 10))}
+    end
+  end
+
+  defp legacy_range_matched(state, metric_name, matchers, from_ts, to_ts, bucket, opts) do
+    aggregate = if opts[:counter?], do: :rate, else: :last
+
+    with {:ok, series} <-
+           legacy_matched_series(state, metric_name, matchers, from_ts, to_ts, bucket, aggregate) do
+      points =
+        case {Keyword.get(opts, :aggregate), series} do
+          {nil, [%{data: points} | _]} ->
+            points
+
+          {nil, []} ->
+            []
+
+          {combine, series} ->
+            TimelessMetrics.merge_series_data(Enum.map(series, & &1.data), combine)
+        end
+
+      {:ok, Enum.map(points, fn {ts, val} -> {ts * 1000, val} end)}
+    end
+  end
+
+  defp combine([], _aggregate), do: 0.0
+  defp combine(values, :avg), do: Enum.sum(values) / length(values)
+  defp combine(values, :max), do: Enum.max(values)
+  defp combine(values, :min), do: Enum.min(values)
+  defp combine(values, _sum), do: Enum.sum(values)
+
+  @impl true
   def status_at(_state, element, %DateTime{} = time) do
     case extract_host(element) do
       nil ->
@@ -161,9 +336,17 @@ defmodule TimelessStack.UIDataSource do
     read_cached(state, {:label_values, "host"}, opts, fn host -> host end)
   end
 
+  # The filter is matched as the canvas says: every word of it in the
+  # metric's name or in the value of one of the series' labels, so that
+  # `proc_cpu postgres` is the postgres series of the process CPU metrics.
   @impl true
   def list_series_for_host(state, host, opts \\ []) do
-    read_cached(state, {:host_series, host}, opts, fn {metric_name, _labels} -> metric_name end)
+    Cache.ensure(state.cache_name, {:host_series, host})
+
+    case Cache.get(state.cache_table, {:host_series, host}) do
+      {:ok, series} -> TimelessCanvas.DataSource.filter_series(series, opts)
+      :miss -> []
+    end
   end
 
   @impl true
@@ -278,33 +461,10 @@ defmodule TimelessStack.UIDataSource do
   """
   def element_labels(element), do: build_labels(element)
 
-  defp build_labels(element) do
-    meta = element.meta || %{}
-    series_label_key = meta["series_label_key"]
-    series_label_value = meta["series_label_value"]
-
-    series_filter =
-      if is_binary(series_label_key) and series_label_key != "" and
-           is_binary(series_label_value) and series_label_value != "" do
-        %{series_label_key => series_label_value}
-      else
-        %{}
-      end
-
-    meta
-    |> Map.drop([
-      "metric_name",
-      "series_label_key",
-      "series_label_value",
-      "y_min",
-      "y_max",
-      "icon",
-      "os_icon"
-    ])
-    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
-    |> Map.new()
-    |> Map.merge(series_filter)
-  end
+  # The canvas says which of an element's fields are labels; a list kept
+  # here fell behind it, and a field that configures the element was sent
+  # to the store as a label that matched nothing.
+  defp build_labels(element), do: Element.query_labels(element)
 
   defp gauge_metric_range(state, metric_name, labels, from_ts, to_ts, bucket_seconds) do
     case state.metrics_module.query_aggregate_multi(state.store, metric_name, labels,

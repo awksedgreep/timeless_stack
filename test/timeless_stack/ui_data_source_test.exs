@@ -92,6 +92,29 @@ defmodule TimelessStack.UIDataSourceTest do
       assert {:ok, 73.5} = UIDataSource.metric(state, element, "cpu_usage")
     end
 
+    test "an element's fields that configure it are not labels", %{state: state} do
+      TimelessMetrics.write(:test_metrics, "cpu", %{"host" => "web-01"}, 42.0)
+
+      element =
+        make_graph_element("g", %{
+          "metric_name" => "cpu",
+          "host" => "web-01",
+          "aggregate" => "sum",
+          "label_filter" => "kind!=slice",
+          "window" => "30",
+          "group_by" => "comm",
+          "limit" => "5",
+          "order" => "desc",
+          "y_max" => "100",
+          "icon" => "server",
+          # Filled in and then emptied: not a label, and not `key=""`.
+          "ifname" => ""
+        })
+
+      assert UIDataSource.element_labels(element) == %{"host" => "web-01"}
+      assert {:ok, 42.0} = UIDataSource.metric(state, element, "cpu")
+    end
+
     test "returns :no_data when no metric exists", %{state: state} do
       element = make_element("el-1", %{"host" => "nonexistent"})
       assert :no_data = UIDataSource.metric(state, element, "no_such_metric")
@@ -248,6 +271,148 @@ defmodule TimelessStack.UIDataSourceTest do
       assert length(window_a) > 50
       assert length(window_b) > 50
       assert window_a == window_b
+    end
+  end
+
+  describe "top_series/5 and metric_range/6 through TimelessMetrics in the node" do
+    defp write_processes(now) do
+      for {proc, comm, kind, values} <- [
+            {"postgres[1]", "postgres", "service", [10.0, 12.0]},
+            {"postgres[2]", "postgres", "service", [5.0, 6.0]},
+            {"sshd[3]", "sshd", "service", [1.0, 1.0]},
+            {"user.slice", "slice", "slice", [90.0, 99.0]}
+          ],
+          {value, offset} <- Enum.zip(values, [-20, -10]) do
+        TimelessMetrics.write(
+          :test_metrics,
+          "proc_rss",
+          %{"host" => "ohm", "proc" => proc, "comm" => comm, "kind" => kind},
+          value,
+          timestamp: now + offset
+        )
+      end
+
+      # A series that stopped reporting well before the moment asked about.
+      TimelessMetrics.write(
+        :test_metrics,
+        "proc_rss",
+        %{"host" => "ohm", "proc" => "gone[9]", "comm" => "gone", "kind" => "service"},
+        500.0,
+        timestamp: now - 600
+      )
+
+      TimelessMetrics.flush(:test_metrics)
+    end
+
+    defp top(state, meta, time) do
+      element =
+        make_graph_element("t", Map.merge(%{"host" => "ohm", "metric_name" => "proc_rss"}, meta))
+
+      opts = TimelessCanvas.DataQueries.build_top_opts(element.meta)
+      UIDataSource.top_series(state, element, "proc_rss", DateTime.from_unix!(time), opts)
+    end
+
+    test "ranks groups, filters what equality cannot, and forgets what has stopped", %{
+      state: state
+    } do
+      now = System.os_time(:second)
+      write_processes(now)
+
+      assert {:ok, rows} =
+               top(state, %{"group_by" => "comm", "label_filter" => "kind!=slice"}, now)
+
+      assert rows == [
+               %{labels: %{"comm" => "postgres"}, value: 18.0},
+               %{labels: %{"comm" => "sshd"}, value: 1.0}
+             ]
+
+      # Without the filter the slice leads, and the series that stopped
+      # ten minutes ago is not there: the lookback is thirty seconds.
+      assert {:ok, [%{labels: %{"comm" => "slice"}, value: 99.0} | _] = all} =
+               top(state, %{"group_by" => "comm"}, now)
+
+      refute Enum.any?(all, &(&1.labels["comm"] == "gone"))
+
+      # A window wide enough reaches it.
+      assert {:ok, wide} = top(state, %{"group_by" => "comm", "window" => "900"}, now)
+      assert Enum.any?(wide, &(&1.labels["comm"] == "gone" and &1.value == 500.0))
+    end
+
+    test "ranks the series themselves with nothing to group by, bottom first if asked", %{
+      state: state
+    } do
+      now = System.os_time(:second)
+      write_processes(now)
+
+      assert {:ok, rows} = top(state, %{"limit" => "2", "order" => "asc"}, now)
+
+      assert Enum.map(rows, &{&1.labels["proc"], &1.value}) == [
+               {"sshd[3]", 1.0},
+               {"postgres[2]", 6.0}
+             ]
+
+      assert Enum.all?(rows, &Map.has_key?(&1.labels, "kind"))
+    end
+
+    test "combines by max and avg as well", %{state: state} do
+      now = System.os_time(:second)
+      write_processes(now)
+
+      assert {:ok, [%{labels: %{"comm" => "postgres"}, value: 12.0} | _]} =
+               top(
+                 state,
+                 %{"group_by" => "comm", "aggregate" => "max", "label_filter" => "comm=postgres"},
+                 now
+               )
+
+      assert {:ok, [%{labels: %{"comm" => "postgres"}, value: 9.0}]} =
+               top(
+                 state,
+                 %{"group_by" => "comm", "aggregate" => "avg", "label_filter" => "comm=postgres"},
+                 now
+               )
+    end
+
+    test "a graph combines the series its labels match, or draws the first", %{state: state} do
+      now = System.os_time(:second)
+      # Written well inside the hour: the graph's window is aligned to its
+      # buckets, and a sample in the last seconds can fall past its end.
+      write_processes(now - 400)
+      from = DateTime.from_unix!(now - 3_600)
+      to = DateTime.from_unix!(now)
+
+      combined =
+        make_graph_element("g", %{
+          "host" => "ohm",
+          "metric_name" => "proc_rss",
+          "comm" => "postgres",
+          "aggregate" => "sum"
+        })
+
+      assert {:ok, points} =
+               UIDataSource.metric_range(
+                 state,
+                 combined,
+                 "proc_rss",
+                 from,
+                 to,
+                 TimelessCanvas.DataQueries.build_range_opts(combined.meta)
+               )
+
+      assert {_ts, 18.0} = List.last(points)
+      assert Enum.all?(points, fn {ts, _} -> ts > 1_000_000_000_000 end)
+
+      one =
+        make_graph_element("g", %{
+          "host" => "ohm",
+          "metric_name" => "proc_rss",
+          "label_filter" => "kind!=slice, comm!=postgres"
+        })
+
+      assert {:ok, points} =
+               UIDataSource.metric_range(state, one, "proc_rss", from, to, window: 30)
+
+      assert {_ts, 1.0} = List.last(points)
     end
   end
 
