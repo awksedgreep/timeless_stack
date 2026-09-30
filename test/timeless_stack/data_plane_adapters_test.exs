@@ -85,6 +85,35 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
       {:ok, %{"labels" => labels, "timestamp" => 20, "value" => 2.5}}
     end
 
+    def prometheus_instant(query, time, opts) do
+      send(self(), {:promql_instant, query, time, opts})
+
+      {:ok,
+       %{
+         "status" => "success",
+         "data" => %{
+           "resultType" => "vector",
+           "result" => [
+             %{"metric" => %{"comm" => "beam.smp"}, "value" => [time, "103.2"]},
+             %{"metric" => %{"comm" => "cc1plus"}, "value" => [time, "887"]}
+           ]
+         }
+       }}
+    end
+
+    def prometheus_range(query, from, to, step, opts) do
+      send(self(), {:promql_range, query, from, to, step, opts})
+
+      {:ok,
+       %{
+         "status" => "success",
+         "data" => %{
+           "resultType" => "matrix",
+           "result" => [%{"metric" => %{}, "values" => [[from, "4"], [to, "6"]]}]
+         }
+       }}
+    end
+
     def label_values("__name__"), do: {:ok, ["cpu"]}
     def label_values("host"), do: {:ok, ["edge"]}
     def label_values("host", %{"metric" => "cpu"}), do: {:ok, ["edge"]}
@@ -239,6 +268,65 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
              MetricsDataPlane.latest_multi(:ignored, "cpu", %{"host" => "edge"})
 
     assert {:ok, %{type: "counter64"}} = MetricsDataPlane.get_metadata(:ignored, "cpu")
+  end
+
+  test "metrics adapter ranks and combines through the PromQL routes" do
+    matchers = [{"host", :eq, ["ohm"]}, {"kind", :neq, ["slice", "manager"]}]
+
+    assert {:ok, rows} =
+             MetricsDataPlane.top_series(:ignored, "unit_memory_bytes", matchers, 1_700_000_000,
+               group_by: ["unit"],
+               limit: 5,
+               order: :desc,
+               aggregate: :sum,
+               lookback_delta: 30
+             )
+
+    assert rows == [
+             %{labels: %{"comm" => "cc1plus"}, value: 887.0},
+             %{labels: %{"comm" => "beam.smp"}, value: 103.2}
+           ]
+
+    assert_received {:promql_instant, query, 1_700_000_000, [lookback_delta: 30]}
+
+    assert query ==
+             ~s|topk(5, sum by (unit) (unit_memory_bytes{host="ohm",kind!~"slice\|manager"}))|
+
+    # Ungrouped, ascending, a counter: the bottom of the rates.
+    assert {:ok, [%{value: 103.2}, %{value: 887.0}]} =
+             MetricsDataPlane.top_series(
+               :ignored,
+               "cpu_total",
+               [{"host", :eq, ["ohm"]}],
+               1_700_000_000,
+               group_by: [],
+               limit: 3,
+               order: :asc,
+               aggregate: :sum,
+               lookback_delta: 45,
+               counter?: true
+             )
+
+    assert_received {:promql_instant, ~s|bottomk(3, rate(cpu_total{host="ohm"}[45s]))|, _, _}
+
+    assert {:ok, [%{labels: %{}, points: [{1_700_000_000_000, 4.0}, {1_700_003_600_000, 6.0}]}]} =
+             MetricsDataPlane.range_matched(
+               :ignored,
+               "proc_rss_bytes",
+               [{"comm", :eq, ["chromium"]}],
+               1_700_000_000,
+               1_700_003_600,
+               aggregate: :sum,
+               step: 60,
+               lookback_delta: 30
+             )
+
+    assert_received {:promql_range, ~s|sum(proc_rss_bytes{comm="chromium"})|, 1_700_000_000,
+                     1_700_003_600, 60, [lookback_delta: 30]}
+
+    # No aggregate: the selector itself, and no lookback where none is given.
+    assert {:ok, _} = MetricsDataPlane.range_matched(:ignored, "m", [], 0, 60, step: 30)
+    assert_received {:promql_range, "m{}", 0, 60, 30, []}
   end
 
   test "metrics adapter rejects an unsupported bucket without raising" do

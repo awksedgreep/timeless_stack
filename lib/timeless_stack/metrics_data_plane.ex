@@ -1,7 +1,79 @@
 defmodule TimelessStack.MetricsDataPlane do
-  @moduledoc "Compatibility adapter over the Rust metrics HTTP boundary."
+  @moduledoc """
+  Compatibility adapter over the Rust metrics HTTP boundary.
+
+  Ranking and combining series go through the plane's PromQL routes
+  (`top_series/5`, `range_matched/6`); the native range route asks only
+  what a label equals and cannot group or rank. The translation is
+  `TimelessUI.MetricsDataPlane.PromQL`.
+  """
 
   alias TimelessUI.MetricsDataPlane.Client
+  alias TimelessUI.MetricsDataPlane.PromQL
+
+  @doc """
+  The ranked groups of `metric` at `time` (unix seconds), by an element's
+  matchers. `opts`: the canvas's `top_series/5` options, plus
+  `:lookback_delta` (seconds) and `:counter?` (rank by rate over the
+  lookback rather than by value).
+  """
+  def top_series(_store, metric, matchers, time, opts) do
+    inner = grouped(selected(metric, matchers, opts), opts)
+    rank = if Keyword.get(opts, :order) == :asc, do: "bottomk", else: "topk"
+    query = "#{rank}(#{Keyword.get(opts, :limit, 10)}, #{inner})"
+
+    with {:ok, body} <- client().prometheus_instant(query, time, promql_opts(opts)) do
+      PromQL.rows(body, Keyword.get(opts, :order, :desc))
+    end
+  end
+
+  @doc """
+  The series of `metric` an element's matchers select, over `from`..`to`
+  (unix seconds) in steps of `opts[:step]` seconds, combined by
+  `opts[:aggregate]` where there is one. Points are unix milliseconds, as
+  the canvas draws them.
+  """
+  def range_matched(_store, metric, matchers, from, to, opts) do
+    selected = selected(metric, matchers, opts)
+
+    query =
+      case Keyword.get(opts, :aggregate) do
+        nil -> selected
+        aggregate -> "#{aggregate}(#{selected})"
+      end
+
+    step = Keyword.get(opts, :step, 60)
+
+    with {:ok, body} <- client().prometheus_range(query, from, to, step, promql_opts(opts)) do
+      PromQL.series(body)
+    end
+  end
+
+  # A counter is read as its rate over the lookback: what it rose by a
+  # second, which is what a ranking or a line of it means.
+  defp selected(metric, matchers, opts) do
+    selector = PromQL.selector(metric, matchers)
+
+    if Keyword.get(opts, :counter?, false),
+      do: "rate(#{selector}[#{Keyword.get(opts, :lookback_delta, 30)}s])",
+      else: selector
+  end
+
+  defp grouped(selected, opts) do
+    aggregate = Keyword.get(opts, :aggregate, :sum)
+
+    case Keyword.get(opts, :group_by, []) do
+      [] -> selected
+      keys -> "#{aggregate} by (#{Enum.join(keys, ",")}) (#{selected})"
+    end
+  end
+
+  defp promql_opts(opts) do
+    case Keyword.get(opts, :lookback_delta) do
+      nil -> []
+      seconds -> [lookback_delta: seconds]
+    end
+  end
 
   def query_multi(_store, metric, labels, opts) do
     from = Keyword.fetch!(opts, :from)
