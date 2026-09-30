@@ -146,6 +146,35 @@ defmodule TimelessStack.MetricsDataPlane do
     end
   end
 
+  @doc """
+  The series with `labels` that have reported in the last `window` seconds,
+  in the shape of `list_series_matching/2`.
+
+  `/api/v1/series` is every series the store has ever had with those
+  labels, and a collector that gives each process series of its own makes
+  that the processes there have been. A nameless instant query with the
+  window as its lookback is the series there are now: what a panel lists
+  to be put on a canvas.
+
+  The plane counts the points within the lookback against its work limit,
+  so a wide window over many series is refused; the caller narrows it or
+  falls back to `list_series_matching/2`.
+  """
+  def list_series_reporting(_store, labels, window) when is_map(labels) and is_integer(window) do
+    matchers = Enum.map(labels, fn {key, value} -> {key, :eq, [value]} end)
+    selector = PromQL.selector("", matchers)
+
+    with {:ok, body} <- client().prometheus_instant(selector, nil, lookback_delta: window) do
+      case body do
+        %{"status" => "success", "data" => %{"result" => result}} when is_list(result) ->
+          normalize_matching_series(for %{"metric" => labels} <- result, do: labels)
+
+        _other ->
+          {:error, :invalid_metrics_series_response}
+      end
+    end
+  end
+
   def info(_store) do
     case client().stats() do
       {:ok, stats} ->

@@ -152,6 +152,118 @@ defmodule TimelessStack.UIDataSource.CacheTest do
 
       assert length(UIDataSource.list_series_for_host(state, "web-1", limit: 1)) == 1
     end
+
+    test "the series filter matches the values of labels, as the canvas says" do
+      write_metric("proc_cpu_pct", %{"host" => "web-1", "comm" => "postgres", "pid" => "40"})
+      write_metric("proc_cpu_pct", %{"host" => "web-1", "comm" => "beam.smp", "pid" => "41"})
+      write_metric("proc_rss_bytes", %{"host" => "web-1", "comm" => "postgres", "pid" => "40"})
+      TimelessMetrics.flush(@store)
+
+      {name, table, pid} = start_cache()
+      state = ds_state(name, table)
+      UIDataSource.list_series_for_host(state, "web-1")
+      sync(pid)
+
+      postgres = UIDataSource.list_series_for_host(state, "web-1", filter: "postgres")
+      assert Enum.map(postgres, &elem(&1, 0)) |> Enum.sort() == ["proc_cpu_pct", "proc_rss_bytes"]
+
+      assert [{"proc_cpu_pct", %{"comm" => "postgres"}}] =
+               UIDataSource.list_series_for_host(state, "web-1", filter: "proc_cpu Postgres")
+
+      assert UIDataSource.list_series_for_host(state, "web-1", filter: "nginx") == []
+    end
+  end
+
+  describe "which series a host has" do
+    defmodule ReportingMetrics do
+      # Answers which series report within a window as the Rust plane's
+      # adapter does, refusing a window wider than the test allows, as the
+      # plane refuses to count too many points.
+      def list_series_reporting(_store, %{"host" => host}, window) do
+        send(:reporting_test, {:reporting, host, window})
+
+        cond do
+          window > max_window() -> {:error, {:unexpected_response, 422, "work point limit"}}
+          true -> {:ok, reporting(host)}
+        end
+      end
+
+      def list_series_matching(_store, %{"host" => host}) do
+        send(:reporting_test, {:matching, host})
+
+        {:ok,
+         reporting(host) ++
+           [%{metric: "proc_cpu_pct", labels: %{"host" => host, "pid" => "ended"}}]}
+      end
+
+      def list_label_values(_store, "host"), do: {:ok, ["ohm"]}
+      def list_label_values(_store, _key), do: {:ok, []}
+
+      defp max_window, do: Application.get_env(:timeless_stack, :reporting_test_max_window, 120)
+
+      defp reporting(host) do
+        for pid <- 1..Application.get_env(:timeless_stack, :reporting_test_count, 3) do
+          %{metric: "proc_cpu_pct", labels: %{"host" => host, "pid" => Integer.to_string(pid)}}
+        end
+      end
+    end
+
+    setup do
+      Process.register(self(), :reporting_test)
+
+      on_exit(fn ->
+        Application.delete_env(:timeless_stack, :reporting_test_max_window)
+        Application.delete_env(:timeless_stack, :reporting_test_count)
+      end)
+
+      :ok
+    end
+
+    defp loaded_series(opts) do
+      {name, table, pid} =
+        start_cache(
+          Keyword.merge([metrics_module: ReportingMetrics, wait_for_refresh: false], opts)
+        )
+
+      state = ds_state(name, table)
+      UIDataSource.list_series_for_host(state, "ohm")
+      sync(pid)
+      UIDataSource.list_series_for_host(state, "ohm")
+    end
+
+    test "are the series that reported within the window, not every series there has been" do
+      series = loaded_series([])
+
+      assert Enum.map(series, fn {_metric, labels} -> labels["pid"] end) |> Enum.sort() ==
+               ["1", "2", "3"]
+
+      assert_received {:reporting, "ohm", 120}
+      refute_received {:matching, "ohm"}
+    end
+
+    test "narrow to the lookback where the plane will not count the window, then take all" do
+      Application.put_env(:timeless_stack, :reporting_test_max_window, 30)
+      series = loaded_series(series_window_seconds: 300, lookback_seconds: 30)
+      assert length(series) == 3
+      assert_received {:reporting, "ohm", 300}
+      assert_received {:reporting, "ohm", 30}
+      refute_received {:matching, "ohm"}
+
+      Application.put_env(:timeless_stack, :reporting_test_max_window, 1)
+      series = loaded_series(series_window_seconds: 300, lookback_seconds: 30)
+      assert "ended" in Enum.map(series, fn {_metric, labels} -> labels["pid"] end)
+      assert_received {:matching, "ohm"}
+    end
+
+    test "are at most the limit, and the cut is logged" do
+      Application.put_env(:timeless_stack, :reporting_test_count, 12)
+
+      {series, log} =
+        ExUnit.CaptureLog.with_log(fn -> loaded_series(host_series_limit: 5) end)
+
+      assert length(series) == 5
+      assert log =~ "keeps 5 of 12 series for host \"ohm\""
+    end
   end
 
   describe "cold cache safety" do

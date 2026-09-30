@@ -336,9 +336,17 @@ defmodule TimelessStack.UIDataSource do
     read_cached(state, {:label_values, "host"}, opts, fn host -> host end)
   end
 
+  # The filter is matched as the canvas says: every word of it in the
+  # metric's name or in the value of one of the series' labels, so that
+  # `proc_cpu postgres` is the postgres series of the process CPU metrics.
   @impl true
   def list_series_for_host(state, host, opts \\ []) do
-    read_cached(state, {:host_series, host}, opts, fn {metric_name, _labels} -> metric_name end)
+    Cache.ensure(state.cache_name, {:host_series, host})
+
+    case Cache.get(state.cache_table, {:host_series, host}) do
+      {:ok, series} -> TimelessCanvas.DataSource.filter_series(series, opts)
+      :miss -> []
+    end
   end
 
   @impl true

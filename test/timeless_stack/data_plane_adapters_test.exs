@@ -85,6 +85,29 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
       {:ok, %{"labels" => labels, "timestamp" => 20, "value" => 2.5}}
     end
 
+    # A nameless selector is how the adapter asks which series report now.
+    def prometheus_instant("{" <> _ = query, time, opts) do
+      send(self(), {:promql_instant, query, time, opts})
+
+      {:ok,
+       %{
+         "status" => "success",
+         "data" => %{
+           "resultType" => "vector",
+           "result" => [
+             %{
+               "metric" => %{"__name__" => "proc_cpu_pct", "host" => "ohm", "pid" => "1"},
+               "value" => [1_700_000_000, "1.5"]
+             },
+             %{
+               "metric" => %{"__name__" => "sys_load_1m", "host" => "ohm"},
+               "value" => [1_700_000_000, "0.4"]
+             }
+           ]
+         }
+       }}
+    end
+
     def prometheus_instant(query, time, opts) do
       send(self(), {:promql_instant, query, time, opts})
 
@@ -263,6 +286,16 @@ defmodule TimelessStack.DataPlaneAdaptersTest do
 
     assert_received {:metrics_series_matching, opts}
     assert opts[:params]["match[]"] == ~s({host="edge"})
+
+    # The series reporting now are asked for as an instant query with the
+    # window as its lookback, and answered in the shape of the listing.
+    assert {:ok,
+            [
+              %{metric: "proc_cpu_pct", labels: %{"host" => "ohm", "pid" => "1"}},
+              %{metric: "sys_load_1m", labels: %{"host" => "ohm"}}
+            ]} = MetricsDataPlane.list_series_reporting(:ignored, %{"host" => "ohm"}, 300)
+
+    assert_received {:promql_instant, ~s({host="ohm"}), nil, lookback_delta: 300}
 
     assert {:ok, [%{timestamp: 20, value: 2.5}]} =
              MetricsDataPlane.latest_multi(:ignored, "cpu", %{"host" => "edge"})
