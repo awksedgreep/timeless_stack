@@ -11,7 +11,7 @@ defmodule TimelessStack.Application do
       [
         {Task.Supervisor, name: TimelessStack.UIDataSource.Cache.TaskSupervisor},
         TimelessStack.UIDataSource.Cache
-      ] ++ alerting_children()
+      ] ++ alerting_children() ++ self_telemetry_children()
 
     opts = [strategy: :one_for_one, name: TimelessStack.Supervisor]
     Supervisor.start_link(children, opts)
@@ -51,6 +51,21 @@ defmodule TimelessStack.Application do
         {TimelessMetrics.AlertEvaluator,
          name: :"#{store}_alert_evaluator", store: store, interval: interval}
       ]
+    else
+      []
+    end
+  end
+
+  # Off unless configured: it writes series into the operator's metrics store,
+  # and it needs the data planes this application does not start itself.
+  @doc false
+  def self_telemetry_children do
+    config = Application.get_env(:timeless_stack, :self_telemetry, [])
+
+    if Keyword.get(config, :enabled, false) do
+      interval = Keyword.get(config, :interval, :timer.seconds(30))
+      Logger.info("self telemetry enabled: interval=#{interval}ms")
+      [{TimelessStack.SelfTelemetry, interval: interval}]
     else
       []
     end
