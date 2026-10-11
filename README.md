@@ -54,6 +54,22 @@ podman run -d \
 
 All data is stored under `/data` (metrics, logs, traces, and the UI database). Mount a volume to persist across restarts.
 
+**Filesystem note:** put the `/data` volume on a filesystem that overwrites
+in place (ext4, xfs), or on btrfs with copy-on-write turned off for the
+volume's directory. With rootless podman that directory is the volume's
+`_data` (`podman volume inspect <name> --format '{{.Mountpoint}}'`):
+
+```bash
+podman volume create timeless_stack_data
+chattr +C "$(podman volume inspect timeless_stack_data --format '{{.Mountpoint}}')"
+```
+
+It has to be set while the directory is empty, before the first start. On
+btrfs with copy-on-write, the metrics database fragments into one extent per
+page and the writer stalls for seconds under maintenance load; see
+[the operations guide](docs/telemetry_data_plane_operations.md#data-volume-filesystem)
+for the symptoms and how to convert an existing volume.
+
 **Performance note:** with rootless podman, published ports go through
 pasta user-mode forwarding, which costs ~13–18% of peak ingest throughput
 at saturation (measured 2026-07-18, timeless_metrics cardinality bank).

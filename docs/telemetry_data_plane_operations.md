@@ -74,6 +74,51 @@ administration endpoint is the authoritative combined state; it reports
 migration phase/progress, source identity, target path, and process readiness.
 Do not send production traffic until all three signals are ready.
 
+## Data volume filesystem
+
+The signal databases rewrite 4 KB pages across multi-gigabyte files every
+few seconds. Keep `/data` on ext4 or xfs, or on a copy-on-write filesystem
+with copy-on-write turned off for the data directory.
+
+On btrfs with copy-on-write (the default, often with `compress=zstd`), each
+rewritten page becomes its own extent. On a 700,000-series deployment
+`metrics.db` reached 3.0 GB in 714,304 extents; the metrics writer was then
+blocked 7–10 seconds at a time in the kernel (`balance_dirty_pages`, and up
+to 3.9 seconds in `fsync`), and queries waited behind it. After the volume
+was converted, the longest maintenance step was under a second and the file
+stayed at 93 extents.
+
+Check a deployment:
+
+```bash
+V="$(podman volume inspect timeless_stack_data --format '{{.Mountpoint}}')"
+findmnt -no FSTYPE,OPTIONS -T "$V"     # btrfs? compress?
+lsattr -d "$V"                         # 'C' means new files are NOCOW
+lsattr "$V/metrics/metrics.db"         # 'C' on the file itself
+sudo filefrag "$V/metrics/metrics.db"  # thousands of extents at most
+```
+
+New volume: set `chattr +C` on the empty `_data` directory before the first
+start. Subdirectories and files created afterwards inherit it.
+
+Convert an existing volume (a few minutes of downtime; needs free space for
+a second copy):
+
+```bash
+systemctl --user stop timeless-stack.service     # clean stop: WAL is checkpointed
+P="$(dirname "$V")"
+mkdir "$P/_data.nocow" && chattr +C "$P/_data.nocow"
+cp -a --reflink=never "$V"/. "$P/_data.nocow"/   # a reflink copy would stay copy-on-write
+diff -r "$V" "$P/_data.nocow" && echo identical  # verify before swapping
+mv "$V" "$P/_data.cow-old" && mv "$P/_data.nocow" "$V"
+systemctl --user start timeless-stack.service
+```
+
+Remove `_data.cow-old` once the stack is healthy. Trade-offs: btrfs neither
+compresses nor checksums NOCOW files, and a snapshot of the subvolume makes
+the snapshotted extents copy-on-write again until they are next rewritten, so
+keep the data volume out of snapshot schedules.
+
 ## Coordinated online backup
 
 Choose a new absolute destination whose parent is on durable storage. The
