@@ -197,6 +197,31 @@ TRACES_RETENTION_AGE=7776000
 TRACES_RETENTION_SIZE=1073741824
 ```
 
+## Metrics Index Mode
+
+The metrics service keeps its whole index (every series and chunk) in memory
+by default, which gives the fastest reads and costs startup time and memory
+that grow with the store. Set
+
+```bash
+TIMELESS_METRICS_INDEX_CACHE=64MB
+```
+
+and it reads the index from disk instead. Measured on a store of 702,000
+series:
+
+| | in memory (default) | `64MB` |
+|---|---|---|
+| metrics service ready after start | 8.7 s | 0.8 s |
+| its memory after start | 1.9 GiB | 40 MiB |
+| maintenance CPU (548,000-series benchmark) | 113 s | 145 s |
+| longest maintenance step (same benchmark) | 0.5 s | 1.3 s |
+
+The first start after changing the setting builds (or drops) two indexes,
+about 14 seconds for nine million chunks; later starts do not. Set it back
+to `unbounded` to return to the default. Reads that touch very many series
+are slower from disk; reads of a few series are about the same.
+
 ## Health Checks
 
 Each ingestion service exposes a `/health` endpoint:
