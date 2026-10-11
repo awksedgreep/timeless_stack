@@ -211,16 +211,10 @@ curl http://localhost:10428/health  # traces
 
 Each service reports counters and timings about itself on `/metrics`: write
 retries, how long reads waited, how long maintenance steps and flushes took.
-Those are only current values unless something keeps reading them. Set
-
-```bash
-TIMELESS_SELF_TELEMETRY_ENABLED=true
-TIMELESS_SELF_TELEMETRY_INTERVAL_SECS=30   # the default
-```
-
-and the stack reads `/metrics` from the metrics, logs and traces services
-every interval and stores the samples in the metrics service, where they can
-be queried and graphed like any other series:
+Those are only current values unless something keeps reading them, so the
+stack reads `/metrics` from the metrics, logs and traces services every 30
+seconds and stores the samples in the metrics service, where they can be
+queried and graphed like any other series:
 
 ```promql
 rate(timeless_metrics_write_busy_retries_total[5m])
@@ -228,9 +222,14 @@ rate(timeless_metrics_read_wait_nanoseconds_total[5m]) / 1e9
 histogram_quantile(0.99, rate(timeless_metrics_maintenance_step_seconds_bucket[5m]))
 ```
 
-It is off by default because it writes a few hundred series into your
-metrics store. The families are named `timeless_metrics_*`,
-`timeless_logs_*` and `timeless_traces_*`.
+The families are named `timeless_metrics_*`, `timeless_logs_*` and
+`timeless_traces_*`, a few hundred series in all. To change the interval or
+turn it off:
+
+```bash
+TIMELESS_SELF_TELEMETRY_INTERVAL_SECS=30   # the default
+TIMELESS_SELF_TELEMETRY_ENABLED=false
+```
 
 ## License
 

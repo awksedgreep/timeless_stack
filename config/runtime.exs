@@ -136,7 +136,7 @@ if config_env() == :prod do
     # The planes' own /metrics, stored in the metrics plane so their counters
     # have a history. Collected by the stack, not by the planes.
     config :timeless_stack, :self_telemetry,
-      enabled: System.get_env("TIMELESS_SELF_TELEMETRY_ENABLED", "false") == "true",
+      enabled: System.get_env("TIMELESS_SELF_TELEMETRY_ENABLED", "true") == "true",
       interval:
         (case Integer.parse(System.get_env("TIMELESS_SELF_TELEMETRY_INTERVAL_SECS", "30")) do
            {seconds, ""} when seconds > 0 ->

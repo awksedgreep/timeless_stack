@@ -56,8 +56,8 @@ defmodule TimelessStack.Application do
     end
   end
 
-  # Off unless configured: it writes series into the operator's metrics store,
-  # and it needs the data planes this application does not start itself.
+  # Off unless configured, because it needs the data planes this application
+  # does not start itself; config/runtime.exs turns it on wherever they run.
   @doc false
   def self_telemetry_children do
     config = Application.get_env(:timeless_stack, :self_telemetry, [])
