@@ -169,10 +169,10 @@ if config_env() == :prod do
         Integer.to_string(metrics_raw_retention_secs)
       )
       |> Map.put("TIMELESS_METRICS_ROLLUPS", metrics_rollups)
-      # Where the metrics plane reads its index from: unset keeps what the
-      # database has (in memory, for one this stack created). A size such as
-      # 64MB reads it from disk, so the plane starts in under a second and
-      # its memory does not grow with the store.
+      # The metrics plane's budget for remembering series identities and
+      # repeated selections: unset keeps what the database has (unbounded,
+      # for one this stack created). Its index is read from the database
+      # whatever this says.
       |> then(fn env ->
         case System.get_env("TIMELESS_METRICS_INDEX_CACHE") do
           value when value in [nil, ""] -> env

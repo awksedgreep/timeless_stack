@@ -197,30 +197,33 @@ TRACES_RETENTION_AGE=7776000
 TRACES_RETENTION_SIZE=1073741824
 ```
 
-## Metrics Index Mode
+## Metrics Index Cache
 
-The metrics service keeps its whole index (every series and chunk) in memory
-by default, which gives the fastest reads and costs startup time and memory
-that grow with the store. Set
+The metrics service reads its index (every series and chunk) from the
+database, whatever the store's size: it starts in under a second in a few
+tens of megabytes, and a read never waits for a write. What it keeps in
+memory is a cache of series identities for ingest and of repeated
+selections for reads, bounded by
 
 ```bash
 TIMELESS_METRICS_INDEX_CACHE=64MB
 ```
 
-and it reads the index from disk instead. Measured on a store of 702,000
-series:
+Unset, a store keeps the setting it has, which for one this stack created
+is `unbounded`: every series' identity is remembered, about 48 bytes each.
 
-| | in memory (default) | `64MB` |
+Before data plane 0.9.0 the service held the whole index in memory. The
+first start of this version on such a store builds two indexes in the
+database, once (about four seconds for 700,000 series). Measured on that
+store:
+
+| | before | now |
 |---|---|---|
-| metrics service ready after start | 8.7 s | 0.8 s |
-| its memory after start | 1.9 GiB | 40 MiB |
-| maintenance CPU (548,000-series benchmark) | 113 s | 145 s |
-| longest maintenance step (same benchmark) | 0.5 s | 1.3 s |
-
-The first start after changing the setting builds (or drops) two indexes,
-about 14 seconds for nine million chunks; later starts do not. Set it back
-to `unbounded` to return to the default. Reads that touch very many series
-are slower from disk; reads of a few series are about the same.
+| metrics service ready after start | 7.9 s | 0.8 s |
+| its memory after start | 1.9 GiB | 77 MiB |
+| reads answered beside ingest and maintenance (benchmark) | 3,420, 38 refused, p99 5.1 s | 18,698, none refused, p99 2.5 ms |
+| longest maintenance step (same benchmark) | 0.6 s | 0.23 s |
+| a count over 98,000 series | 67 ms | 103 ms |
 
 ## Health Checks
 
